@@ -17,6 +17,8 @@ A Rust CLI tool for analyzing SCSS codebases and building file-level dependency 
 -   **CI Integration** - Check command for enforcing constraints in pipelines
 -   **Interactive Web Visualizer** - React-based UI for exploring dependency graphs
 
+![Web Visualizer Screenshot](docs/screenshot.png)
+
 ## Installation
 
 ### From Source
