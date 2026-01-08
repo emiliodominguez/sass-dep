@@ -300,6 +300,13 @@ Open `http://localhost:5173` and load your JSON analysis file (drag & drop or fi
 -   SVG - Vector format for editing
 -   JSON - Export filtered subgraph data
 
+**Folder Grouping**
+
+-   Toggle folder grouping to organize files by directory
+-   Visual containers show folder path and file count
+-   Group backgrounds dim edges for clearer visualization
+-   Hover labels to expand and see full folder paths
+
 **Keyboard Shortcuts**
 | Key | Action |
 |-----|--------|
