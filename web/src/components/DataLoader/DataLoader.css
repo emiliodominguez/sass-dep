@@ -1,0 +1,120 @@
+.data-loader {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	height: 100%;
+	width: 100%;
+	background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.loader-content {
+	text-align: center;
+	max-width: 500px;
+	padding: 40px;
+}
+
+.loader-content h1 {
+	color: white;
+	font-size: 32px;
+	margin: 0 0 8px 0;
+	font-weight: 700;
+}
+
+.loader-content .description {
+	color: rgba(255, 255, 255, 0.8);
+	font-size: 16px;
+	margin: 0 0 32px 0;
+}
+
+.drop-zone {
+	background: rgba(255, 255, 255, 0.95);
+	border-radius: 12px;
+	padding: 48px 32px;
+	border: 3px dashed #ccc;
+	transition: all 0.2s ease;
+}
+
+.drop-zone.dragging {
+	border-color: #667eea;
+	background: rgba(255, 255, 255, 1);
+	transform: scale(1.02);
+}
+
+.drop-text {
+	font-size: 16px;
+	color: #333;
+	margin: 0 0 12px 0;
+}
+
+.or {
+	font-size: 14px;
+	color: #999;
+	margin: 0 0 12px 0;
+}
+
+.file-input {
+	display: none;
+}
+
+.file-input-label {
+	display: inline-block;
+	padding: 12px 24px;
+	background: #667eea;
+	color: white;
+	border-radius: 6px;
+	font-size: 14px;
+	font-weight: 600;
+	cursor: pointer;
+	transition: background 0.2s ease;
+}
+
+.file-input-label:hover {
+	background: #5a6fd6;
+}
+
+.error {
+	color: #ff6b6b;
+	background: rgba(255, 107, 107, 0.1);
+	padding: 12px 16px;
+	border-radius: 6px;
+	margin-top: 16px;
+	font-size: 14px;
+}
+
+.instructions {
+	margin-top: 32px;
+	text-align: left;
+	background: rgba(255, 255, 255, 0.1);
+	padding: 20px;
+	border-radius: 8px;
+}
+
+.instructions h3 {
+	color: white;
+	font-size: 14px;
+	margin: 0 0 12px 0;
+	font-weight: 600;
+}
+
+.instructions code {
+	display: block;
+	background: rgba(0, 0, 0, 0.3);
+	color: #a5d6a7;
+	padding: 12px 16px;
+	border-radius: 6px;
+	font-size: 13px;
+	font-family: "SF Mono", Monaco, "Courier New", monospace;
+	overflow-x: auto;
+}
+
+.instructions .tip {
+	color: rgba(255, 255, 255, 0.7);
+	font-size: 13px;
+	margin: 12px 0 0 0;
+}
+
+.instructions .tip code {
+	display: inline;
+	padding: 2px 6px;
+	background: rgba(0, 0, 0, 0.2);
+}

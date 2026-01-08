@@ -1,0 +1,208 @@
+//! CLI command definitions.
+//!
+//! Defines the main CLI structure and all available subcommands
+//! for the sass-dep tool.
+
+use clap::{Parser, Subcommand, ValueEnum};
+use std::path::PathBuf;
+
+/// SCSS dependency graph analyzer.
+///
+/// Analyzes SCSS codebases to build file-level dependency graphs,
+/// detect cycles, and compute structural metrics.
+#[derive(Parser, Debug)]
+#[command(name = "sass-dep")]
+#[command(author = "Emilio Dominguez")]
+#[command(version)]
+#[command(about = "SCSS dependency graph analyzer", long_about = None)]
+pub struct Cli {
+    /// Subcommand to execute
+    #[command(subcommand)]
+    pub command: Commands,
+
+    /// Project root directory.
+    ///
+    /// All relative paths will be resolved from this directory.
+    #[arg(long, default_value = ".", global = true)]
+    pub root: PathBuf,
+
+    /// Config file path.
+    ///
+    /// Path to a .sass-dep.toml configuration file.
+    #[arg(long, default_value = ".sass-dep.toml", global = true)]
+    pub config: PathBuf,
+
+    /// Add Sass load path (can be repeated).
+    ///
+    /// Directories to search when resolving @use, @forward, and @import paths.
+    /// Similar to the Sass --load-path option.
+    #[arg(long = "load-path", short = 'I', global = true)]
+    pub load_paths: Vec<PathBuf>,
+
+    /// Suppress non-error output.
+    ///
+    /// When enabled, only error messages will be printed.
+    #[arg(long, short, global = true)]
+    pub quiet: bool,
+
+    /// Increase verbosity (-v, -vv, -vvv).
+    ///
+    /// Use multiple times for more detailed output:
+    /// - `-v`: Show warnings
+    /// - `-vv`: Show info messages
+    /// - `-vvv`: Show debug information
+    #[arg(long, short, action = clap::ArgAction::Count, global = true)]
+    pub verbose: u8,
+}
+
+/// Available subcommands.
+#[derive(Subcommand, Debug)]
+pub enum Commands {
+    /// Build dependency graph and run analysis.
+    ///
+    /// Parses all SCSS files reachable from the entry points,
+    /// builds a dependency graph, and outputs analysis results.
+    Analyze {
+        /// Entry point files.
+        ///
+        /// SCSS files to start analysis from. All dependencies
+        /// will be recursively discovered and included.
+        #[arg(required = true)]
+        entry_points: Vec<PathBuf>,
+
+        /// Output file (default: stdout).
+        ///
+        /// Path to write the analysis results. If not specified,
+        /// results are written to standard output.
+        #[arg(long, short)]
+        output: Option<PathBuf>,
+
+        /// Output format.
+        ///
+        /// Format for the analysis output.
+        #[arg(long, default_value = "json", value_enum)]
+        format: OutputFormat,
+
+        /// Include orphan files.
+        ///
+        /// When enabled, files in the project that are not
+        /// reachable from any entry point will be included
+        /// in the output with the Orphan flag.
+        #[arg(long)]
+        include_orphans: bool,
+
+        /// Open interactive web visualization.
+        ///
+        /// Starts a local HTTP server and opens the browser
+        /// to view the dependency graph interactively.
+        #[arg(long)]
+        web: bool,
+
+        /// Port for web server (default: 3000).
+        ///
+        /// The port to use when running the web visualization server.
+        /// Only used when --web is specified.
+        #[arg(long, default_value = "3000")]
+        port: u16,
+    },
+
+    /// Verify graph integrity (CI mode).
+    ///
+    /// Analyzes the dependency graph and exits with a non-zero
+    /// status code if any constraints are violated. Useful for
+    /// continuous integration pipelines.
+    Check {
+        /// Entry point files.
+        ///
+        /// SCSS files to start analysis from.
+        #[arg(required = true)]
+        entry_points: Vec<PathBuf>,
+
+        /// Fail on circular dependencies.
+        ///
+        /// Exit with error code 1 if any cycles are detected
+        /// in the dependency graph.
+        #[arg(long)]
+        no_cycles: bool,
+
+        /// Maximum allowed depth.
+        ///
+        /// Exit with error if any file exceeds this depth
+        /// in the dependency tree.
+        #[arg(long)]
+        max_depth: Option<usize>,
+
+        /// Maximum allowed fan-out.
+        ///
+        /// Exit with error if any file has more direct
+        /// dependencies than this limit.
+        #[arg(long)]
+        max_fan_out: Option<usize>,
+
+        /// Maximum allowed fan-in.
+        ///
+        /// Exit with error if any file has more dependents
+        /// than this limit.
+        #[arg(long)]
+        max_fan_in: Option<usize>,
+    },
+
+    /// Export graph to visualization formats.
+    ///
+    /// Converts a previously generated JSON analysis file
+    /// to various graph visualization formats.
+    Export {
+        /// Input JSON file.
+        ///
+        /// Path to a JSON file generated by the analyze command.
+        input: PathBuf,
+
+        /// Output format.
+        ///
+        /// Graph visualization format to export to.
+        #[arg(long, default_value = "dot", value_enum)]
+        format: ExportFormat,
+    },
+}
+
+/// Output formats for the analyze command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum OutputFormat {
+    /// JSON format (default).
+    ///
+    /// Outputs the full analysis as a JSON document
+    /// conforming to the sass-dep schema.
+    Json,
+}
+
+/// Export formats for graph visualization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum ExportFormat {
+    /// Graphviz DOT format.
+    ///
+    /// Can be rendered using `dot`, `neato`, or other
+    /// Graphviz tools.
+    Dot,
+
+    /// Mermaid diagram format.
+    ///
+    /// Can be rendered in Markdown files or using
+    /// the Mermaid CLI.
+    Mermaid,
+
+    /// D2 diagram format.
+    ///
+    /// Can be rendered using the D2 CLI tool.
+    D2,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn verify_cli() {
+        use clap::CommandFactory;
+        Cli::command().debug_assert();
+    }
+}
