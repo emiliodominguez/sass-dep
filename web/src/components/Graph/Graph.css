@@ -100,3 +100,25 @@
 .react-flow__pane:active {
 	cursor: grabbing;
 }
+
+/* Group node styling */
+.react-flow__node-group {
+	background-color: var(--color-group-bg) !important;
+	border: 2px dashed var(--color-group-border) !important;
+	border-radius: 12px !important;
+	overflow: visible !important;
+}
+
+/* Ensure edges render below group nodes so group background dims them */
+.react-flow__edges {
+	z-index: 0 !important;
+}
+
+.react-flow__node-group {
+	z-index: 1 !important;
+}
+
+/* File nodes inside groups need to be above the group background */
+.react-flow__node-fileNode {
+	z-index: 2 !important;
+}

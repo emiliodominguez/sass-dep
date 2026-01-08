@@ -50,6 +50,7 @@ interface ToolbarProps {
 	maxFanOut: number;
 	isExporting?: boolean;
 	highlightCycles?: boolean;
+	groupByFolder?: boolean;
 	// Callbacks
 	onSearchChange: (query: string) => void;
 	onFiltersChange: (filters: string[]) => void;
@@ -59,10 +60,11 @@ interface ToolbarProps {
 	onExportJson?: () => void;
 	onFitView?: () => void;
 	onToggleCycles?: (highlight: boolean) => void;
+	onToggleGroupByFolder?: (group: boolean) => void;
 }
 
 export const Toolbar = forwardRef<ToolbarHandle, ToolbarProps>(function Toolbar(
-	{ searchQuery, activeFilters, advancedFilters, nodeCount, visibleCount, cycleCount, maxDepth, maxFanIn, maxFanOut, isExporting, highlightCycles, onSearchChange, onFiltersChange, onAdvancedFiltersChange, onExportPng, onExportSvg, onExportJson, onFitView, onToggleCycles },
+	{ searchQuery, activeFilters, advancedFilters, nodeCount, visibleCount, cycleCount, maxDepth, maxFanIn, maxFanOut, isExporting, highlightCycles, groupByFolder, onSearchChange, onFiltersChange, onAdvancedFiltersChange, onExportPng, onExportSvg, onExportJson, onFitView, onToggleCycles, onToggleGroupByFolder },
 	ref,
 ) {
 	const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -328,6 +330,20 @@ export const Toolbar = forwardRef<ToolbarHandle, ToolbarProps>(function Toolbar(
 						<path d="M12 20v-4" />
 					</svg>
 					<span>Cycles ({cycleCount})</span>
+				</button>
+			)}
+
+			{onToggleGroupByFolder && (
+				<button
+					className={`group-button ${groupByFolder ? "active" : ""}`}
+					onClick={() => onToggleGroupByFolder(!groupByFolder)}
+					title={groupByFolder ? "Ungroup files" : "Group by folder"}
+					aria-label={groupByFolder ? "Ungroup files" : "Group by folder"}
+				>
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+						<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+					</svg>
+					<span>Group</span>
 				</button>
 			)}
 

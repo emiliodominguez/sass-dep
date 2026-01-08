@@ -341,6 +341,38 @@
 	transform: translateY(0);
 }
 
+.group-button {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 10px 14px;
+	border: 1px solid var(--color-border);
+	border-radius: 10px;
+	background-color: var(--color-bg-secondary);
+	color: var(--color-text-secondary);
+	font-size: 14px;
+	font-weight: 500;
+	cursor: pointer;
+	transition: all 0.15s ease;
+}
+
+.group-button:hover {
+	background-color: var(--color-accent-light);
+	border-color: var(--color-accent);
+	color: var(--color-accent);
+	transform: translateY(-1px);
+}
+
+.group-button.active {
+	background-color: var(--color-accent-light);
+	border-color: var(--color-accent);
+	color: var(--color-accent);
+}
+
+.group-button:active {
+	transform: translateY(0);
+}
+
 .export-button {
 	display: flex;
 	align-items: center;

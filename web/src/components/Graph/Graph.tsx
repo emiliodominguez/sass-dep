@@ -4,15 +4,18 @@ import { toPng, toSvg } from "html-to-image";
 import "@xyflow/react/dist/style.css";
 
 import FileNode from "./FileNode";
-import { transformToFlowElements, applyDagreLayout } from "./utils";
+import GroupNode from "./GroupNode";
+import { transformToFlowElements, applyDagreLayout, transformToGroupedFlowElements, applyGroupedDagreLayout } from "./utils";
 import { getNodeColor } from "./styles";
 import { usePathHighlight } from "../../hooks/usePathHighlight";
 import type { SassDepOutput, OutputNode, OutputEdge } from "../../types/sass-dep";
 import type { AdvancedFilters } from "../Toolbar/Toolbar";
 import "./Graph.css";
 
-const nodeTypes = {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const nodeTypes: any = {
 	fileNode: FileNode,
+	group: GroupNode,
 };
 
 export interface GraphHandle {
@@ -32,13 +35,14 @@ interface GraphProps {
 	pathSource: string | null;
 	pathTarget: string | null;
 	highlightCycles?: boolean;
+	groupByFolder?: boolean;
 	// Callbacks
 	onNodeSelect?: (nodeId: string, node: OutputNode, isShiftClick?: boolean) => void;
 	onEdgeSelect?: (edge: OutputEdge) => void;
 	onClearSelection?: () => void;
 }
 
-function GraphInner({ data, searchQuery, activeFilters, advancedFilters, pathSource, pathTarget, highlightCycles, onNodeSelect, onEdgeSelect, onClearSelection }: GraphProps, ref: React.Ref<GraphHandle>) {
+function GraphInner({ data, searchQuery, activeFilters, advancedFilters, pathSource, pathTarget, highlightCycles, groupByFolder, onNodeSelect, onEdgeSelect, onClearSelection }: GraphProps, ref: React.Ref<GraphHandle>) {
 	const { setCenter, getNode, fitView } = useReactFlow();
 	const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
 
@@ -64,22 +68,45 @@ function GraphInner({ data, searchQuery, activeFilters, advancedFilters, pathSou
 
 	// Transform and layout nodes
 	const { initialNodes, initialEdges } = useMemo(() => {
-		const { nodes, edges } = transformToFlowElements(data);
-		const layoutedNodes = applyDagreLayout(nodes, edges);
-		return { initialNodes: layoutedNodes, initialEdges: edges };
-	}, [data]);
+		if (groupByFolder) {
+			const { nodes, edges } = transformToGroupedFlowElements(data);
+			const layoutedNodes = applyGroupedDagreLayout(nodes, edges);
+			return { initialNodes: layoutedNodes, initialEdges: edges };
+		} else {
+			const { nodes, edges } = transformToFlowElements(data);
+			const layoutedNodes = applyDagreLayout(nodes, edges);
+			return { initialNodes: layoutedNodes, initialEdges: edges };
+		}
+	}, [data, groupByFolder]);
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const [nodes, , onNodesChange] = useNodesState(initialNodes as any);
+	const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes as any);
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const [edges, , onEdgesChange] = useEdgesState(initialEdges as any);
+	const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges as any);
+
+	// Update nodes when grouping changes
+	useEffect(() => {
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		setNodes(initialNodes as any);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		setEdges(initialEdges as any);
+	}, [initialNodes, initialEdges, setNodes, setEdges]);
 
 	// Filter nodes based on search and filters
 	const filteredNodes = useMemo(() => {
 		const { minDepth, maxDepth, minFanIn, maxFanIn, minFanOut, maxFanOut } = advancedFilters;
 
+		// Track which group nodes have visible children
+		const visibleGroupIds = new Set<string>();
+
+		// First pass: determine which file nodes are visible
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		return nodes.map((node: any) => {
+		const processedNodes = nodes.map((node: any) => {
+			// Group nodes are handled separately
+			if (node.type === "group") {
+				return { node, isVisible: false }; // Will be updated later
+			}
+
 			const matchesSearch =
 				!searchQuery || node.id.toLowerCase().includes(searchQuery.toLowerCase()) || node.data.fullPath?.toLowerCase().includes(searchQuery.toLowerCase());
 
@@ -106,6 +133,26 @@ function GraphInner({ data, searchQuery, activeFilters, advancedFilters, pathSou
 				(maxFanOut === null || fanOut <= maxFanOut);
 
 			const isVisible = matchesSearch && matchesFilters && matchesAdvanced;
+
+			// Track visible groups
+			if (isVisible && node.parentId) {
+				visibleGroupIds.add(node.parentId);
+			}
+
+			return { node, isVisible };
+		});
+
+		// Second pass: apply visibility and styling
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		return processedNodes.map(({ node, isVisible }: { node: any; isVisible: boolean }) => {
+			// Group nodes are visible if they have visible children
+			if (node.type === "group") {
+				return {
+					...node,
+					hidden: !visibleGroupIds.has(node.id),
+				};
+			}
+
 			const isFocused = node.id === focusedNodeId;
 			const isPathSource = node.id === pathSource;
 			const isPathTarget = node.id === pathTarget;

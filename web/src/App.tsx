@@ -26,6 +26,9 @@ function App() {
 	// Cycle highlighting state
 	const [highlightCycles, setHighlightCycles] = useState(false);
 
+	// Folder grouping state
+	const [groupByFolder, setGroupByFolder] = useState(false);
+
 	const handleNodeSelect = useCallback(
 		(nodeId: string, node: OutputNode, isShiftClick?: boolean) => {
 			if (isShiftClick) {
@@ -178,6 +181,7 @@ function App() {
 					maxFanOut={data.analysis.statistics.max_fan_out}
 					isExporting={isExporting}
 					highlightCycles={highlightCycles}
+					groupByFolder={groupByFolder}
 					onSearchChange={setSearchQuery}
 					onFiltersChange={setActiveFilters}
 					onAdvancedFiltersChange={setAdvancedFilters}
@@ -186,6 +190,7 @@ function App() {
 					onExportJson={handleExportJson}
 					onFitView={handleFitView}
 					onToggleCycles={setHighlightCycles}
+					onToggleGroupByFolder={setGroupByFolder}
 				/>
 			</div>
 			<div className="app-body">
@@ -199,6 +204,7 @@ function App() {
 						pathSource={pathSource}
 						pathTarget={pathTarget}
 						highlightCycles={highlightCycles}
+						groupByFolder={groupByFolder}
 						onNodeSelect={handleNodeSelect}
 						onEdgeSelect={handleEdgeSelect}
 						onClearSelection={handleClearSelection}
