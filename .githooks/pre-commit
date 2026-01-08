@@ -1,0 +1,32 @@
+#!/bin/sh
+#
+# Pre-commit hook for sass-dep
+# Runs cargo test and cargo clippy before allowing commits
+
+set -e
+
+echo "Running pre-commit checks..."
+
+# Check if cargo is available
+if ! command -v cargo &> /dev/null; then
+    echo "Warning: cargo not found, skipping Rust checks"
+    exit 0
+fi
+
+# Run clippy
+echo "Running cargo clippy..."
+cargo clippy --all-targets --all-features -- -D warnings
+if [ $? -ne 0 ]; then
+    echo "cargo clippy failed. Please fix the warnings before committing."
+    exit 1
+fi
+
+# Run tests
+echo "Running cargo test..."
+cargo test --all-features
+if [ $? -ne 0 ]; then
+    echo "cargo test failed. Please fix the failing tests before committing."
+    exit 1
+fi
+
+echo "All pre-commit checks passed!"

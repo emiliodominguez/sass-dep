@@ -5,7 +5,7 @@ import { Graph, type GraphHandle } from "./components/Graph/Graph";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { DataLoader } from "./components/DataLoader/DataLoader";
 import { Legend } from "./components/Legend/Legend";
-import { Toolbar, ALL_FILTER_FLAGS, type ToolbarHandle } from "./components/Toolbar/Toolbar";
+import { Toolbar, ALL_FILTER_FLAGS, DEFAULT_ADVANCED_FILTERS, type ToolbarHandle, type AdvancedFilters } from "./components/Toolbar/Toolbar";
 import type { OutputNode, OutputEdge } from "./types/sass-dep";
 import "./App.css";
 
@@ -15,12 +15,16 @@ function App() {
 	const [selectedEdge, setSelectedEdge] = useState<OutputEdge | null>(null);
 	const [searchQuery, setSearchQuery] = useState("");
 	const [activeFilters, setActiveFilters] = useState<string[]>(ALL_FILTER_FLAGS);
+	const [advancedFilters, setAdvancedFilters] = useState<AdvancedFilters>(DEFAULT_ADVANCED_FILTERS);
 	const graphRef = useRef<GraphHandle>(null);
 	const toolbarRef = useRef<ToolbarHandle>(null);
 
 	// Path highlighting state
 	const [pathSource, setPathSource] = useState<string | null>(null);
 	const [pathTarget, setPathTarget] = useState<string | null>(null);
+
+	// Cycle highlighting state
+	const [highlightCycles, setHighlightCycles] = useState(false);
 
 	const handleNodeSelect = useCallback(
 		(nodeId: string, node: OutputNode, isShiftClick?: boolean) => {
@@ -91,6 +95,21 @@ function App() {
 		}
 	}, []);
 
+	const handleExportSvg = useCallback(async () => {
+		if (!graphRef.current) return;
+		setIsExporting(true);
+		try {
+			await graphRef.current.exportSvg();
+		} finally {
+			setIsExporting(false);
+		}
+	}, []);
+
+	const handleExportJson = useCallback(() => {
+		if (!graphRef.current) return;
+		graphRef.current.exportJson();
+	}, []);
+
 	// Calculate visible node count for toolbar stats
 	const { nodeCount, visibleCount } = useMemo(() => {
 		if (!data) return { nodeCount: 0, visibleCount: 0 };
@@ -110,11 +129,23 @@ function App() {
 					return node.flags.includes(filter as OutputNode["flags"][number]);
 				});
 
-			return matchesSearch && matchesFilters;
+			// Check advanced filters
+			const { minDepth, maxDepth, minFanIn, maxFanIn, minFanOut, maxFanOut } = advancedFilters;
+			const { depth, fan_in, fan_out } = node.metrics;
+
+			const matchesAdvanced =
+				(minDepth === null || depth >= minDepth) &&
+				(maxDepth === null || depth <= maxDepth) &&
+				(minFanIn === null || fan_in >= minFanIn) &&
+				(maxFanIn === null || fan_in <= maxFanIn) &&
+				(minFanOut === null || fan_out >= minFanOut) &&
+				(maxFanOut === null || fan_out <= maxFanOut);
+
+			return matchesSearch && matchesFilters && matchesAdvanced;
 		}).length;
 
 		return { nodeCount, visibleCount };
-	}, [data, searchQuery, activeFilters]);
+	}, [data, searchQuery, activeFilters, advancedFilters]);
 
 	// Show loading state
 	if (isLoading) {
@@ -138,13 +169,23 @@ function App() {
 					ref={toolbarRef}
 					searchQuery={searchQuery}
 					activeFilters={activeFilters}
+					advancedFilters={advancedFilters}
 					nodeCount={nodeCount}
 					visibleCount={visibleCount}
+					cycleCount={data.analysis.cycles.length}
+					maxDepth={data.analysis.statistics.max_depth}
+					maxFanIn={data.analysis.statistics.max_fan_in}
+					maxFanOut={data.analysis.statistics.max_fan_out}
 					isExporting={isExporting}
+					highlightCycles={highlightCycles}
 					onSearchChange={setSearchQuery}
 					onFiltersChange={setActiveFilters}
+					onAdvancedFiltersChange={setAdvancedFilters}
 					onExportPng={handleExportPng}
+					onExportSvg={handleExportSvg}
+					onExportJson={handleExportJson}
 					onFitView={handleFitView}
+					onToggleCycles={setHighlightCycles}
 				/>
 			</div>
 			<div className="app-body">
@@ -154,15 +195,17 @@ function App() {
 						data={data}
 						searchQuery={searchQuery}
 						activeFilters={activeFilters}
+						advancedFilters={advancedFilters}
 						pathSource={pathSource}
 						pathTarget={pathTarget}
+						highlightCycles={highlightCycles}
 						onNodeSelect={handleNodeSelect}
 						onEdgeSelect={handleEdgeSelect}
 						onClearSelection={handleClearSelection}
 					/>
 					<Legend />
 				</main>
-				<Sidebar selectedNode={selectedNode} selectedEdge={selectedEdge} statistics={data.analysis.statistics} onFocusNode={handleFocusNode} />
+				<Sidebar selectedNode={selectedNode} selectedEdge={selectedEdge} statistics={data.analysis.statistics} edges={data.edges} onFocusNode={handleFocusNode} />
 			</div>
 		</div>
 	);

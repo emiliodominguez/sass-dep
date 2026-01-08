@@ -1,8 +1,14 @@
-import type { OutputNode, NodeFlag } from "../../types/sass-dep";
+import type { OutputNode, OutputEdge, NodeFlag } from "../../types/sass-dep";
+import { DependencyTree } from "./DependencyTree";
 
 interface NodeDetailsProps {
+	// Data props
 	nodeId: string;
 	node: OutputNode;
+	dependents: string[];
+	dependencies: string[];
+	edges: OutputEdge[];
+	// Callbacks
 	onFocusNode?: (nodeId: string) => void;
 }
 
@@ -84,7 +90,7 @@ function getRecommendations(node: OutputNode, flags: NodeFlag[]): Recommendation
 	return recommendations;
 }
 
-export function NodeDetails({ nodeId, node, onFocusNode }: NodeDetailsProps) {
+export function NodeDetails({ nodeId, node, dependents, dependencies, edges, onFocusNode }: NodeDetailsProps) {
 	const formatDepth = (depth: number) => {
 		// MAX_SAFE_INTEGER indicates orphan
 		return depth >= Number.MAX_SAFE_INTEGER - 1000 ? "N/A (orphan)" : depth.toString();
@@ -188,6 +194,58 @@ export function NodeDetails({ nodeId, node, onFocusNode }: NodeDetailsProps) {
 					))}
 				</ul>
 			</div>
+
+			{/* Impact Analysis - Dependents (files that import this file) */}
+			<div className="detail-group">
+				<label>
+					Dependents
+					<span className="label-count">{dependents.length}</span>
+				</label>
+				{dependents.length > 0 ? (
+					<ul className="file-list">
+						{dependents.map((fileId) => (
+							<li key={fileId} className="file-list-item">
+								<button className="file-link" onClick={() => onFocusNode?.(fileId)} title={`Focus on ${fileId}`}>
+									<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+										<path d="M12 19V5M5 12l7-7 7 7" />
+									</svg>
+									{fileId}
+								</button>
+							</li>
+						))}
+					</ul>
+				) : (
+					<p className="no-items">No files depend on this file</p>
+				)}
+			</div>
+
+			{/* Dependencies (files this file imports) */}
+			<div className="detail-group">
+				<label>
+					Dependencies
+					<span className="label-count">{dependencies.length}</span>
+				</label>
+				{dependencies.length > 0 ? (
+					<ul className="file-list">
+						{dependencies.map((fileId) => (
+							<li key={fileId} className="file-list-item">
+								<button className="file-link" onClick={() => onFocusNode?.(fileId)} title={`Focus on ${fileId}`}>
+									<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+										<path d="M12 5v14M5 12l7 7 7-7" />
+									</svg>
+									{fileId}
+								</button>
+							</li>
+						))}
+					</ul>
+				) : (
+					<p className="no-items">This file has no dependencies</p>
+				)}
+			</div>
+
+			{/* Dependency Trees - only shown if there are connections */}
+			<DependencyTree rootNodeId={nodeId} edges={edges} direction="dependents" onFocusNode={onFocusNode} />
+			<DependencyTree rootNodeId={nodeId} edges={edges} direction="dependencies" onFocusNode={onFocusNode} />
 		</div>
 	);
 }

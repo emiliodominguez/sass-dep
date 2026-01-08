@@ -9,6 +9,7 @@ interface FileNodeProps {
 		isPathSource?: boolean;
 		isPathTarget?: boolean;
 		isInPath?: boolean;
+		isInCycle?: boolean;
 	};
 	selected: boolean;
 }
@@ -18,12 +19,13 @@ function FileNodeComponent({ data, selected }: FileNodeProps) {
 	const isPathSource = data.isPathSource ?? false;
 	const isPathTarget = data.isPathTarget ?? false;
 	const isInPath = data.isInPath ?? false;
+	const isInCycle = data.isInCycle ?? false;
 	const flagClass = data.primaryFlag?.replace(/-/g, "_") || "";
 
 	const pathClass = isPathSource ? "path-source" : isPathTarget ? "path-target" : isInPath ? "in-path" : "";
 
 	return (
-		<div className={`file-node ${selected ? "selected" : ""} ${flagClass} ${isFocused ? "focused" : ""} ${pathClass}`}>
+		<div className={`file-node ${selected ? "selected" : ""} ${flagClass} ${isFocused ? "focused" : ""} ${pathClass} ${isInCycle ? "cycle-highlight" : ""}`}>
 			<Handle type="target" position={Position.Left} />
 
 			<div className="file-node-content">

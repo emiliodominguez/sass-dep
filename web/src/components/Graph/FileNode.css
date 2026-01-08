@@ -243,3 +243,26 @@
 	border-color: var(--color-accent);
 	box-shadow: 0 0 0 2px var(--color-accent-light);
 }
+
+/* Cycle highlighting - animated glow effect */
+.file-node.cycle-highlight {
+	border-color: var(--color-flag-in-cycle-border);
+	box-shadow:
+		0 0 0 3px var(--color-flag-in-cycle),
+		0 0 20px var(--color-flag-in-cycle);
+	animation: cycle-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes cycle-pulse {
+	0%,
+	100% {
+		box-shadow:
+			0 0 0 3px var(--color-flag-in-cycle),
+			0 0 20px var(--color-flag-in-cycle);
+	}
+	50% {
+		box-shadow:
+			0 0 0 5px var(--color-flag-in-cycle),
+			0 0 30px var(--color-flag-in-cycle);
+	}
+}

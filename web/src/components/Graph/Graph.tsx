@@ -1,6 +1,6 @@
 import { useCallback, useMemo, forwardRef, useImperativeHandle, useState, useEffect, useRef } from "react";
 import { ReactFlow, Background, Controls, MiniMap, useNodesState, useEdgesState, useReactFlow, ReactFlowProvider, getNodesBounds } from "@xyflow/react";
-import { toPng } from "html-to-image";
+import { toPng, toSvg } from "html-to-image";
 import "@xyflow/react/dist/style.css";
 
 import FileNode from "./FileNode";
@@ -8,6 +8,7 @@ import { transformToFlowElements, applyDagreLayout } from "./utils";
 import { getNodeColor } from "./styles";
 import { usePathHighlight } from "../../hooks/usePathHighlight";
 import type { SassDepOutput, OutputNode, OutputEdge } from "../../types/sass-dep";
+import type { AdvancedFilters } from "../Toolbar/Toolbar";
 import "./Graph.css";
 
 const nodeTypes = {
@@ -17,6 +18,8 @@ const nodeTypes = {
 export interface GraphHandle {
 	focusNode: (nodeId: string) => void;
 	exportPng: () => Promise<void>;
+	exportSvg: () => Promise<void>;
+	exportJson: () => void;
 	fitView: () => void;
 }
 
@@ -25,20 +28,39 @@ interface GraphProps {
 	data: SassDepOutput;
 	searchQuery: string;
 	activeFilters: string[];
+	advancedFilters: AdvancedFilters;
 	pathSource: string | null;
 	pathTarget: string | null;
+	highlightCycles?: boolean;
 	// Callbacks
 	onNodeSelect?: (nodeId: string, node: OutputNode, isShiftClick?: boolean) => void;
 	onEdgeSelect?: (edge: OutputEdge) => void;
 	onClearSelection?: () => void;
 }
 
-function GraphInner({ data, searchQuery, activeFilters, pathSource, pathTarget, onNodeSelect, onEdgeSelect, onClearSelection }: GraphProps, ref: React.Ref<GraphHandle>) {
+function GraphInner({ data, searchQuery, activeFilters, advancedFilters, pathSource, pathTarget, highlightCycles, onNodeSelect, onEdgeSelect, onClearSelection }: GraphProps, ref: React.Ref<GraphHandle>) {
 	const { setCenter, getNode, fitView } = useReactFlow();
 	const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
 
 	// Path highlighting
 	const { pathNodeIds, pathEdgeKeys, hasPath } = usePathHighlight(pathSource, pathTarget, data.edges);
+
+	// Cycle highlighting - build sets of node IDs and edge keys in cycles
+	const { cycleNodeIds, cycleEdgeKeys } = useMemo(() => {
+		const nodeIds = new Set<string>();
+		const edgeKeys = new Set<string>();
+
+		for (const cycle of data.analysis.cycles) {
+			for (let i = 0; i < cycle.length; i++) {
+				nodeIds.add(cycle[i]);
+				// Create edge key for each consecutive pair in the cycle
+				const nextIndex = (i + 1) % cycle.length;
+				edgeKeys.add(`${cycle[i]}->${cycle[nextIndex]}`);
+			}
+		}
+
+		return { cycleNodeIds: nodeIds, cycleEdgeKeys: edgeKeys };
+	}, [data.analysis.cycles]);
 
 	// Transform and layout nodes
 	const { initialNodes, initialEdges } = useMemo(() => {
@@ -54,6 +76,8 @@ function GraphInner({ data, searchQuery, activeFilters, pathSource, pathTarget, 
 
 	// Filter nodes based on search and filters
 	const filteredNodes = useMemo(() => {
+		const { minDepth, maxDepth, minFanIn, maxFanIn, minFanOut, maxFanOut } = advancedFilters;
+
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		return nodes.map((node: any) => {
 			const matchesSearch =
@@ -68,11 +92,25 @@ function GraphInner({ data, searchQuery, activeFilters, pathSource, pathTarget, 
 					return node.data.flags?.includes(filter);
 				});
 
-			const isVisible = matchesSearch && matchesFilters;
+			// Check advanced filters using node data metrics
+			const depth = node.data.depth ?? 0;
+			const fanIn = node.data.fanIn ?? 0;
+			const fanOut = node.data.fanOut ?? 0;
+
+			const matchesAdvanced =
+				(minDepth === null || depth >= minDepth) &&
+				(maxDepth === null || depth <= maxDepth) &&
+				(minFanIn === null || fanIn >= minFanIn) &&
+				(maxFanIn === null || fanIn <= maxFanIn) &&
+				(minFanOut === null || fanOut >= minFanOut) &&
+				(maxFanOut === null || fanOut <= maxFanOut);
+
+			const isVisible = matchesSearch && matchesFilters && matchesAdvanced;
 			const isFocused = node.id === focusedNodeId;
 			const isPathSource = node.id === pathSource;
 			const isPathTarget = node.id === pathTarget;
 			const isInPath = hasPath && pathNodeIds.has(node.id);
+			const isInCycle = highlightCycles && cycleNodeIds.has(node.id);
 
 			return {
 				...node,
@@ -83,10 +121,11 @@ function GraphInner({ data, searchQuery, activeFilters, pathSource, pathTarget, 
 					isPathSource,
 					isPathTarget,
 					isInPath,
+					isInCycle,
 				},
 			};
 		});
-	}, [nodes, searchQuery, activeFilters, focusedNodeId, pathSource, pathTarget, hasPath, pathNodeIds]);
+	}, [nodes, searchQuery, activeFilters, advancedFilters, focusedNodeId, pathSource, pathTarget, hasPath, pathNodeIds, highlightCycles, cycleNodeIds]);
 
 	// Filter edges to only show connections between visible nodes
 	const filteredEdges = useMemo(() => {
@@ -99,17 +138,28 @@ function GraphInner({ data, searchQuery, activeFilters, pathSource, pathTarget, 
 		return edges.map((edge: any) => {
 			const edgeKey = `${edge.source}->${edge.target}`;
 			const isInPath = hasPath && pathEdgeKeys.has(edgeKey);
+			const isInCycle = highlightCycles && cycleEdgeKeys.has(edgeKey);
+
+			// Path highlighting takes priority over cycle highlighting
+			let style = edge.style;
+			let animated = false;
+
+			if (isInPath) {
+				style = { stroke: "var(--color-accent)", strokeWidth: 3 };
+				animated = true;
+			} else if (isInCycle) {
+				style = { stroke: "var(--color-flag-in-cycle)", strokeWidth: 3 };
+				animated = true;
+			}
 
 			return {
 				...edge,
 				hidden: !visibleNodeIds.has(edge.source) || !visibleNodeIds.has(edge.target),
-				style: isInPath
-					? { stroke: "var(--color-accent)", strokeWidth: 3 }
-					: edge.style,
-				animated: isInPath,
+				style,
+				animated,
 			};
 		});
-	}, [edges, filteredNodes, hasPath, pathEdgeKeys]);
+	}, [edges, filteredNodes, hasPath, pathEdgeKeys, highlightCycles, cycleEdgeKeys]);
 
 	// Track if this is the initial render
 	const isInitialRender = useRef(true);
@@ -183,6 +233,90 @@ function GraphInner({ data, searchQuery, activeFilters, pathSource, pathTarget, 
 		link.click();
 	}, [filteredNodes]);
 
+	// Export to SVG function
+	const exportSvg = useCallback(async () => {
+		const viewport = document.querySelector(".react-flow__viewport") as HTMLElement;
+		if (!viewport) return;
+
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const visibleNodes = filteredNodes.filter((n: any) => !n.hidden);
+		if (visibleNodes.length === 0) return;
+
+		const nodesBounds = getNodesBounds(visibleNodes);
+		const padding = 20;
+		const imageWidth = nodesBounds.width + padding * 2;
+		const imageHeight = nodesBounds.height + padding * 2;
+		const translateX = -nodesBounds.x + padding;
+		const translateY = -nodesBounds.y + padding;
+
+		const svgDataUrl = await toSvg(viewport, {
+			backgroundColor: getComputedStyle(document.documentElement).getPropertyValue("--color-graph-bg").trim() || "#f8fafc",
+			width: imageWidth,
+			height: imageHeight,
+			style: {
+				width: `${imageWidth}px`,
+				height: `${imageHeight}px`,
+				transform: `translate(${translateX}px, ${translateY}px) scale(1)`,
+			},
+		});
+
+		const link = document.createElement("a");
+		link.download = `sass-dep-graph-${new Date().toISOString().slice(0, 10)}.svg`;
+		link.href = svgDataUrl;
+		link.click();
+	}, [filteredNodes]);
+
+	// Export visible subgraph as JSON
+	const exportJson = useCallback(() => {
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const visibleNodeIds = new Set(filteredNodes.filter((n: any) => !n.hidden).map((n: any) => n.id));
+
+		// Filter nodes to only visible ones
+		const visibleNodes: Record<string, OutputNode> = {};
+		for (const [id, node] of Object.entries(data.nodes)) {
+			if (visibleNodeIds.has(id)) {
+				visibleNodes[id] = node;
+			}
+		}
+
+		// Filter edges to only those between visible nodes
+		const visibleEdges = data.edges.filter((edge) => visibleNodeIds.has(edge.from) && visibleNodeIds.has(edge.to));
+
+		// Create subgraph export
+		const subgraph = {
+			$schema: data.$schema,
+			version: data.version,
+			metadata: {
+				...data.metadata,
+				exported_at: new Date().toISOString(),
+				export_type: "subgraph",
+				total_nodes: visibleNodeIds.size,
+				total_edges: visibleEdges.length,
+			},
+			nodes: visibleNodes,
+			edges: visibleEdges,
+			analysis: {
+				cycles: data.analysis.cycles.filter((cycle) => cycle.every((nodeId) => visibleNodeIds.has(nodeId))),
+				statistics: {
+					...data.analysis.statistics,
+					total_files: visibleNodeIds.size,
+					total_dependencies: visibleEdges.length,
+				},
+			},
+		};
+
+		const jsonString = JSON.stringify(subgraph, null, 2);
+		const blob = new Blob([jsonString], { type: "application/json" });
+		const url = URL.createObjectURL(blob);
+
+		const link = document.createElement("a");
+		link.download = `sass-dep-subgraph-${new Date().toISOString().slice(0, 10)}.json`;
+		link.href = url;
+		link.click();
+
+		URL.revokeObjectURL(url);
+	}, [filteredNodes, data]);
+
 	// Fit view to visible nodes
 	const handleFitView = useCallback(() => {
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -230,9 +364,11 @@ function GraphInner({ data, searchQuery, activeFilters, pathSource, pathTarget, 
 				setTimeout(() => setFocusedNodeId(null), 3000);
 			},
 			exportPng,
+			exportSvg,
+			exportJson,
 			fitView: handleFitView,
 		}),
-		[nodes, getNode, setCenter, exportPng, handleFitView],
+		[nodes, getNode, setCenter, exportPng, exportSvg, exportJson, handleFitView],
 	);
 
 	const handleNodeClick = useCallback(

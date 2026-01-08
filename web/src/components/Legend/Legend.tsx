@@ -1,67 +1,76 @@
+import { useState } from "react";
 import "./Legend.css";
 
-const NODE_DESCRIPTIONS: Record<string, string> = {
-	"entry-point": "Files that are not imported by any other file. These are typically your main stylesheets.",
-	"in-cycle": "Files involved in circular dependencies. Cycles can cause build issues and should be resolved.",
-	orphan: "Files that neither import nor are imported by other files. Consider removing unused files.",
-	leaf: "Files that import other files but are not imported by anyone. Usually utility or base files.",
-	"high-fan-in": "Files imported by many others. Changes here have wide impact - handle with care.",
-	"high-fan-out": "Files that import many others. May indicate a file doing too much.",
-};
+const NODE_ITEMS = [
+	{ className: "swatch-entry-point", label: "Entry", title: "Entry Point - Files not imported by any other file" },
+	{ className: "swatch-in-cycle", label: "Cycle", title: "In Cycle - Files involved in circular dependencies" },
+	{ className: "swatch-orphan", label: "Orphan", title: "Orphan - Files not connected to the graph" },
+	{ className: "swatch-leaf", label: "Leaf", title: "Leaf - Files with no dependencies" },
+	{ className: "swatch-high-fan-in", label: "Fan-In", title: "High Fan-In - Files imported by many others" },
+	{ className: "swatch-high-fan-out", label: "Fan-Out", title: "High Fan-Out - Files that import many others" },
+];
 
-const EDGE_DESCRIPTIONS: Record<string, string> = {
-	use: "Modern Sass import. Namespaced, explicit, and recommended for new code.",
-	forward: "Re-exports members from another module. Used to create public APIs.",
-	import: "Legacy import (deprecated). Consider migrating to @use for better encapsulation.",
-};
+const EDGE_ITEMS = [
+	{ className: "line-use", style: "solid", label: "@use", title: "@use - Modern namespaced import" },
+	{ className: "line-forward", style: "dashed", label: "@forward", title: "@forward - Re-exports members" },
+	{ className: "line-import", style: "dotted", label: "@import", title: "@import - Legacy import (deprecated)" },
+];
 
-interface LegendItemProps {
-	icon: React.ReactNode;
-	label: string;
-	description: string;
-}
-
-function LegendItem({ icon, label, description }: LegendItemProps) {
-	return (
-		<li className="legend-item">
-			{icon}
-			<span className="legend-label">{label}</span>
-			<span className="legend-info-icon">?</span>
-			<div className="legend-tooltip">{description}</div>
-		</li>
-	);
-}
+const SHORTCUTS = [
+	{ key: "/", label: "Search" },
+	{ key: "f", label: "Fit" },
+	{ key: "Esc", label: "Clear" },
+	{ key: "Shift+Click", label: "Path" },
+];
 
 export function Legend() {
+	const [isExpanded, setIsExpanded] = useState(true);
+
 	return (
-		<div className="legend">
-			<div className="legend-section">
-				<h4>Node Types</h4>
-				<ul className="legend-list">
-					<LegendItem icon={<span className="swatch swatch-entry-point" />} label="Entry Point" description={NODE_DESCRIPTIONS["entry-point"]} />
-					<LegendItem icon={<span className="swatch swatch-in-cycle" />} label="In Cycle" description={NODE_DESCRIPTIONS["in-cycle"]} />
-					<LegendItem icon={<span className="swatch swatch-orphan" />} label="Orphan" description={NODE_DESCRIPTIONS["orphan"]} />
-					<LegendItem icon={<span className="swatch swatch-leaf" />} label="Leaf" description={NODE_DESCRIPTIONS["leaf"]} />
-					<LegendItem icon={<span className="swatch swatch-high-fan-in" />} label="High Fan-In" description={NODE_DESCRIPTIONS["high-fan-in"]} />
-					<LegendItem icon={<span className="swatch swatch-high-fan-out" />} label="High Fan-Out" description={NODE_DESCRIPTIONS["high-fan-out"]} />
-				</ul>
-			</div>
+		<div className={`legend ${isExpanded ? "legend-expanded" : "legend-collapsed"}`}>
+			<button className="legend-toggle" onClick={() => setIsExpanded(!isExpanded)} title={isExpanded ? "Collapse legend" : "Expand legend"}>
+				<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+					{isExpanded ? <polyline points="18 15 12 9 6 15" /> : <polyline points="6 9 12 15 18 9" />}
+				</svg>
+				<span>Legend</span>
+			</button>
 
-			<div className="legend-section">
-				<h4>Edge Types</h4>
-				<ul className="legend-list">
-					<LegendItem icon={<span className="line solid line-use" />} label="@use" description={EDGE_DESCRIPTIONS["use"]} />
-					<LegendItem icon={<span className="line dashed line-forward" />} label="@forward" description={EDGE_DESCRIPTIONS["forward"]} />
-					<LegendItem icon={<span className="line dotted line-import" />} label="@import" description={EDGE_DESCRIPTIONS["import"]} />
-				</ul>
-			</div>
-
-			<div className="legend-shortcuts">
-				<span className="shortcut-key">/</span> Search
-				<span className="shortcut-key">f</span> Fit view
-				<span className="shortcut-key">Esc</span> Clear
-				<span className="shortcut-key">Shift+Click</span> Path
-			</div>
+			{isExpanded && (
+				<div className="legend-content">
+					<div className="legend-sections">
+						<div className="legend-section">
+							<span className="legend-section-title">Nodes</span>
+							<div className="legend-column">
+								{NODE_ITEMS.map((item) => (
+									<span key={item.className} className="legend-chip" title={item.title}>
+										<span className={`swatch ${item.className}`} />
+										{item.label}
+									</span>
+								))}
+							</div>
+						</div>
+						<div className="legend-section">
+							<span className="legend-section-title">Edges</span>
+							<div className="legend-column">
+								{EDGE_ITEMS.map((item) => (
+									<span key={item.className} className="legend-chip" title={item.title}>
+										<span className={`line ${item.style} ${item.className}`} />
+										{item.label}
+									</span>
+								))}
+							</div>
+						</div>
+					</div>
+					<div className="legend-shortcuts-row">
+						{SHORTCUTS.map((s) => (
+							<span key={s.key} className="legend-shortcut" title={s.label}>
+								<kbd>{s.key}</kbd>
+								{s.label}
+							</span>
+						))}
+					</div>
+				</div>
+			)}
 		</div>
 	);
 }

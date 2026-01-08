@@ -1,16 +1,33 @@
+import { useMemo } from "react";
 import type { OutputNode, OutputEdge, Statistics } from "../../types/sass-dep";
 import { NodeDetails } from "./NodeDetails";
 import { EdgeDetails } from "./EdgeDetails";
 import "./Sidebar.css";
 
 interface SidebarProps {
+	// Data props
 	selectedNode: { id: string; node: OutputNode } | null;
 	selectedEdge: OutputEdge | null;
 	statistics: Statistics;
+	edges: OutputEdge[];
+	// Callbacks
 	onFocusNode?: (nodeId: string) => void;
 }
 
-export function Sidebar({ selectedNode, selectedEdge, statistics, onFocusNode }: SidebarProps) {
+export function Sidebar({ selectedNode, selectedEdge, statistics, edges, onFocusNode }: SidebarProps) {
+	// Compute direct dependents and dependencies for the selected node
+	const { dependents, dependencies } = useMemo(() => {
+		if (!selectedNode) return { dependents: [], dependencies: [] };
+
+		const nodeId = selectedNode.id;
+		// Dependents: files that import this file (edges where this file is the target)
+		const dependents = edges.filter((e) => e.to === nodeId).map((e) => e.from);
+		// Dependencies: files this file imports (edges where this file is the source)
+		const dependencies = edges.filter((e) => e.from === nodeId).map((e) => e.to);
+
+		return { dependents, dependencies };
+	}, [selectedNode, edges]);
+
 	return (
 		<div className="sidebar">
 			<div className="sidebar-header">
@@ -20,7 +37,7 @@ export function Sidebar({ selectedNode, selectedEdge, statistics, onFocusNode }:
 
 			<div className="sidebar-content">
 				{selectedNode ? (
-					<NodeDetails nodeId={selectedNode.id} node={selectedNode.node} onFocusNode={onFocusNode} />
+					<NodeDetails nodeId={selectedNode.id} node={selectedNode.node} dependents={dependents} dependencies={dependencies} edges={edges} onFocusNode={onFocusNode} />
 				) : selectedEdge ? (
 					<EdgeDetails edge={selectedEdge} />
 				) : (

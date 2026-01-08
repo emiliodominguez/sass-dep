@@ -142,6 +142,10 @@
 	animation: dropdownFade 0.15s ease;
 }
 
+.filter-dropdown-wide {
+	min-width: 280px;
+}
+
 @keyframes dropdownFade {
 	from {
 		opacity: 0;
@@ -305,6 +309,38 @@
 	transform: translateY(0);
 }
 
+.cycle-button {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 10px 14px;
+	border: 1px solid var(--color-border);
+	border-radius: 10px;
+	background-color: var(--color-bg-secondary);
+	color: var(--color-text-secondary);
+	font-size: 14px;
+	font-weight: 500;
+	cursor: pointer;
+	transition: all 0.15s ease;
+}
+
+.cycle-button:hover {
+	background-color: var(--color-flag-in-cycle);
+	border-color: var(--color-flag-in-cycle-border);
+	color: var(--color-text-primary);
+	transform: translateY(-1px);
+}
+
+.cycle-button.active {
+	background-color: var(--color-flag-in-cycle);
+	border-color: var(--color-flag-in-cycle-border);
+	color: var(--color-text-primary);
+}
+
+.cycle-button:active {
+	transform: translateY(0);
+}
+
 .export-button {
 	display: flex;
 	align-items: center;
@@ -355,6 +391,116 @@
 	}
 }
 
+/* Export dropdown */
+.toolbar-export {
+	position: relative;
+}
+
+.export-toggle {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 10px 14px;
+	border: 1px solid var(--color-border);
+	border-radius: 10px;
+	background-color: var(--color-bg-secondary);
+	color: var(--color-text-secondary);
+	font-size: 14px;
+	font-weight: 500;
+	cursor: pointer;
+	transition: all 0.15s ease;
+}
+
+.export-toggle:hover:not(:disabled) {
+	background-color: var(--color-accent-light);
+	border-color: var(--color-accent);
+	color: var(--color-accent);
+	transform: translateY(-1px);
+}
+
+.export-toggle.active {
+	background-color: var(--color-accent-light);
+	border-color: var(--color-accent);
+	color: var(--color-accent);
+}
+
+.export-toggle.exporting {
+	background-color: var(--color-accent-light);
+	border-color: var(--color-accent);
+	color: var(--color-accent);
+}
+
+.export-toggle:disabled {
+	opacity: 0.7;
+	cursor: not-allowed;
+}
+
+.export-toggle .spinner {
+	animation: toolbar-spin 1s linear infinite;
+}
+
+.export-dropdown {
+	position: absolute;
+	top: calc(100% + 8px);
+	right: 0;
+	min-width: 200px;
+	padding: 8px 0;
+	background-color: var(--color-bg-elevated);
+	border: 1px solid var(--color-border);
+	border-radius: 14px;
+	box-shadow: var(--shadow-lg);
+	z-index: 100;
+	animation: dropdownFade 0.15s ease;
+}
+
+.export-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding: 10px 14px;
+	border-bottom: 1px solid var(--color-border);
+	font-size: 11px;
+	font-weight: 700;
+	color: var(--color-text-tertiary);
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+}
+
+.export-option {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	width: 100%;
+	padding: 10px 14px;
+	border: none;
+	background-color: transparent;
+	color: var(--color-text-primary);
+	font-size: 14px;
+	text-align: left;
+	cursor: pointer;
+	white-space: pre;
+	transition: background-color 0.1s ease;
+}
+
+.export-option:hover {
+	background-color: var(--color-bg-secondary);
+}
+
+.export-option svg {
+	flex-shrink: 0;
+	color: var(--color-text-tertiary);
+}
+
+.export-option:hover svg {
+	color: var(--color-accent);
+}
+
+.export-hint {
+	margin-left: auto;
+	font-size: 11px;
+	color: var(--color-text-tertiary);
+}
+
 .theme-toggle {
 	display: flex;
 	align-items: center;
@@ -379,4 +525,125 @@
 
 .theme-toggle:active {
 	transform: rotate(0deg) scale(0.95);
+}
+
+/* Advanced Filters */
+.filter-section-divider {
+	border-top: 1px solid var(--color-border);
+	margin-top: 8px;
+	padding-top: 8px;
+}
+
+.advanced-toggle {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	padding: 10px 14px;
+	border: none;
+	background-color: transparent;
+	color: var(--color-text-secondary);
+	font-size: 12px;
+	font-weight: 600;
+	cursor: pointer;
+	transition: all 0.15s ease;
+}
+
+.advanced-toggle:hover {
+	background-color: var(--color-bg-secondary);
+	color: var(--color-text-primary);
+}
+
+.advanced-active-dot {
+	width: 6px;
+	height: 6px;
+	background-color: var(--color-accent);
+	border-radius: 50%;
+	margin-left: auto;
+}
+
+.advanced-filters {
+	padding: 8px 14px 14px;
+}
+
+.clear-advanced {
+	display: block;
+	width: 100%;
+	padding: 6px 10px;
+	margin-bottom: 12px;
+	border: 1px solid var(--color-border);
+	border-radius: 6px;
+	background-color: transparent;
+	color: var(--color-accent);
+	font-size: 11px;
+	font-weight: 600;
+	cursor: pointer;
+	transition: all 0.15s ease;
+}
+
+.clear-advanced:hover {
+	background-color: var(--color-accent-light);
+	border-color: var(--color-accent);
+}
+
+.filter-range-group {
+	margin-bottom: 12px;
+}
+
+.filter-range-group:last-child {
+	margin-bottom: 0;
+}
+
+.range-label {
+	display: block;
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--color-text-tertiary);
+	margin-bottom: 6px;
+}
+
+.range-inputs {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.range-input {
+	flex: 1;
+	padding: 8px 10px;
+	border: 1px solid var(--color-border);
+	border-radius: 6px;
+	background-color: var(--color-bg-secondary);
+	color: var(--color-text-primary);
+	font-size: 13px;
+	width: 60px;
+	transition: all 0.15s ease;
+}
+
+.range-input:focus {
+	outline: none;
+	border-color: var(--color-accent);
+	background-color: var(--color-bg-primary);
+	box-shadow: 0 0 0 2px var(--color-accent-light);
+}
+
+.range-input::placeholder {
+	color: var(--color-text-tertiary);
+}
+
+/* Hide number input spinners */
+.range-input::-webkit-outer-spin-button,
+.range-input::-webkit-inner-spin-button {
+	-webkit-appearance: none;
+	margin: 0;
+}
+
+.range-input[type="number"] {
+	-moz-appearance: textfield;
+}
+
+.range-separator {
+	font-size: 12px;
+	color: var(--color-text-tertiary);
+	flex-shrink: 0;
 }
