@@ -1,14 +1,34 @@
 .sidebar {
-	width: 320px;
+	position: relative;
 	height: 100%;
+	min-width: 280px;
+	max-width: 600px;
 	background-color: var(--color-bg-primary);
 	border-left: 1px solid var(--color-border);
 	display: flex;
 	flex-direction: column;
 	overflow: hidden;
+	flex-shrink: 0;
 	transition:
 		background 0.2s ease,
 		border-color 0.2s ease;
+}
+
+.sidebar-resize-handle {
+	position: absolute;
+	left: 0;
+	top: 0;
+	bottom: 0;
+	width: 4px;
+	cursor: col-resize;
+	background: transparent;
+	z-index: 10;
+	transition: background 0.15s ease;
+}
+
+.sidebar-resize-handle:hover,
+.sidebar-resize-handle:active {
+	background: var(--color-accent);
 }
 
 .sidebar-header {

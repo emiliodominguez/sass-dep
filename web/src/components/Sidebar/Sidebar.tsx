@@ -1,8 +1,25 @@
-import { useMemo } from "react";
+import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import type { OutputNode, OutputEdge, Statistics } from "../../types/sass-dep";
 import { NodeDetails } from "./NodeDetails";
 import { EdgeDetails } from "./EdgeDetails";
 import "./Sidebar.css";
+
+const MIN_WIDTH = 280;
+const MAX_WIDTH = 600;
+const DEFAULT_WIDTH = 320;
+const STORAGE_KEY = "sass-dep-sidebar-width";
+
+function getStoredWidth(): number {
+	if (typeof window === "undefined") return DEFAULT_WIDTH;
+	const stored = localStorage.getItem(STORAGE_KEY);
+	if (stored) {
+		const width = parseInt(stored, 10);
+		if (!isNaN(width) && width >= MIN_WIDTH && width <= MAX_WIDTH) {
+			return width;
+		}
+	}
+	return DEFAULT_WIDTH;
+}
 
 interface SidebarProps {
 	// Data props
@@ -15,6 +32,10 @@ interface SidebarProps {
 }
 
 export function Sidebar({ selectedNode, selectedEdge, statistics, edges, onFocusNode }: SidebarProps) {
+	const [width, setWidth] = useState(getStoredWidth);
+	const [isResizing, setIsResizing] = useState(false);
+	const sidebarRef = useRef<HTMLDivElement>(null);
+
 	// Compute direct dependents and dependencies for the selected node
 	const { dependents, dependencies } = useMemo(() => {
 		if (!selectedNode) return { dependents: [], dependencies: [] };
@@ -28,8 +49,47 @@ export function Sidebar({ selectedNode, selectedEdge, statistics, edges, onFocus
 		return { dependents, dependencies };
 	}, [selectedNode, edges]);
 
+	const handleMouseDown = useCallback((e: React.MouseEvent) => {
+		e.preventDefault();
+		setIsResizing(true);
+	}, []);
+
+	useEffect(() => {
+		if (!isResizing) return;
+
+		const handleMouseMove = (e: MouseEvent) => {
+			if (!sidebarRef.current) return;
+
+			// Calculate new width from right edge of window
+			const newWidth = window.innerWidth - e.clientX;
+			const clampedWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, newWidth));
+			setWidth(clampedWidth);
+		};
+
+		const handleMouseUp = () => {
+			setIsResizing(false);
+			// Save width to localStorage
+			localStorage.setItem(STORAGE_KEY, width.toString());
+		};
+
+		document.addEventListener("mousemove", handleMouseMove);
+		document.addEventListener("mouseup", handleMouseUp);
+
+		// Add cursor style to body while resizing
+		document.body.style.cursor = "col-resize";
+		document.body.style.userSelect = "none";
+
+		return () => {
+			document.removeEventListener("mousemove", handleMouseMove);
+			document.removeEventListener("mouseup", handleMouseUp);
+			document.body.style.cursor = "";
+			document.body.style.userSelect = "";
+		};
+	}, [isResizing, width]);
+
 	return (
-		<div className="sidebar">
+		<div className="sidebar" ref={sidebarRef} style={{ width }}>
+			<div className="sidebar-resize-handle" onMouseDown={handleMouseDown} />
 			<div className="sidebar-header">
 				<h2>sass-dep</h2>
 				<span className="subtitle">Dependency Graph</span>
