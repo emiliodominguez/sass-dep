@@ -2,7 +2,7 @@
 	position: relative;
 	width: 100%;
 	height: 100%;
-	background: var(--color-bg-graph);
+	background-color: var(--color-bg-graph);
 	transition: background 0.2s ease;
 }
 
@@ -21,7 +21,7 @@
 }
 
 .react-flow__controls-button {
-	background: var(--color-bg-elevated);
+	background-color: var(--color-bg-elevated);
 	border: none;
 	border-bottom: 1px solid var(--color-border);
 	width: 32px;
@@ -31,7 +31,7 @@
 }
 
 .react-flow__controls-button:hover {
-	background: var(--color-bg-tertiary);
+	background-color: var(--color-bg-tertiary);
 	color: var(--color-accent);
 }
 
@@ -50,7 +50,7 @@
 	overflow: hidden;
 	border: 1px solid var(--color-border);
 	box-shadow: var(--shadow-lg);
-	background: var(--color-minimap-bg) !important;
+	background-color: var(--color-minimap-bg) !important;
 	backdrop-filter: blur(8px);
 	-webkit-backdrop-filter: blur(8px);
 }
@@ -88,7 +88,7 @@
 
 /* Selection box styling */
 .react-flow__selection {
-	background: var(--color-accent-light);
+	background-color: var(--color-accent-light);
 	border: 1px solid var(--color-accent);
 }
 

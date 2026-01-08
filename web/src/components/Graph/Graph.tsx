@@ -21,11 +21,13 @@ export interface GraphHandle {
 }
 
 interface GraphProps {
+	// Data props
 	data: SassDepOutput;
 	searchQuery: string;
 	activeFilters: string[];
 	pathSource: string | null;
 	pathTarget: string | null;
+	// Callbacks
 	onNodeSelect?: (nodeId: string, node: OutputNode, isShiftClick?: boolean) => void;
 	onEdgeSelect?: (edge: OutputEdge) => void;
 	onClearSelection?: () => void;
@@ -111,12 +113,19 @@ function GraphInner({ data, searchQuery, activeFilters, pathSource, pathTarget, 
 
 	// Track if this is the initial render
 	const isInitialRender = useRef(true);
+	// Track if we're currently focusing on a node (to skip auto-fit)
+	const isFocusingRef = useRef(false);
 
 	// Auto-fit view when filters or search change
 	useEffect(() => {
 		// Skip the initial render (ReactFlow's fitView prop handles that)
 		if (isInitialRender.current) {
 			isInitialRender.current = false;
+			return;
+		}
+
+		// Skip if we're in the middle of focusing on a node
+		if (isFocusingRef.current) {
 			return;
 		}
 
@@ -188,39 +197,42 @@ function GraphInner({ data, searchQuery, activeFilters, pathSource, pathTarget, 
 		ref,
 		() => ({
 			focusNode: (nodeId: string) => {
-				// Use requestAnimationFrame to ensure React Flow has updated
-				requestAnimationFrame(() => {
-					const node = getNode(nodeId);
-					if (node) {
-						// Center the view on the node
-						const x = node.position.x + (node.measured?.width ?? 180) / 2;
-						const y = node.position.y + (node.measured?.height ?? 60) / 2;
-						setCenter(x, y, { zoom: 1.5, duration: 500 });
+				// Find the node from our nodes array (more reliable than getNode)
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				const node = nodes.find((n: any) => n.id === nodeId);
+				if (!node) return;
 
-						// Set focused state for visual highlight
-						setFocusedNodeId(nodeId);
+				// Mark that we're focusing to prevent auto-fit from interfering
+				isFocusingRef.current = true;
 
-						// Clear focus after 3 seconds
-						setTimeout(() => setFocusedNodeId(null), 3000);
-					} else {
-						// Retry once after a short delay if node not found
-						setTimeout(() => {
-							const retryNode = getNode(nodeId);
-							if (retryNode) {
-								const x = retryNode.position.x + (retryNode.measured?.width ?? 180) / 2;
-								const y = retryNode.position.y + (retryNode.measured?.height ?? 60) / 2;
-								setCenter(x, y, { zoom: 1.5, duration: 500 });
-								setFocusedNodeId(nodeId);
-								setTimeout(() => setFocusedNodeId(null), 3000);
-							}
-						}, 100);
-					}
-				});
+				// Set focused state to trigger visual highlight
+				setFocusedNodeId(nodeId);
+
+				// Use setTimeout to ensure React has processed the state update
+				setTimeout(() => {
+					// Get fresh node data from React Flow (may have measured dimensions now)
+					const flowNode = getNode(nodeId);
+					const width = flowNode?.measured?.width ?? 180;
+					const height = flowNode?.measured?.height ?? 60;
+
+					// Center on node position
+					const x = node.position.x + width / 2;
+					const y = node.position.y + height / 2;
+					setCenter(x, y, { zoom: 1.5, duration: 500 });
+
+					// Allow auto-fit again after animation completes
+					setTimeout(() => {
+						isFocusingRef.current = false;
+					}, 600);
+				}, 50);
+
+				// Clear focus after 3 seconds
+				setTimeout(() => setFocusedNodeId(null), 3000);
 			},
 			exportPng,
 			fitView: handleFitView,
 		}),
-		[getNode, setCenter, exportPng, handleFitView],
+		[nodes, getNode, setCenter, exportPng, handleFitView],
 	);
 
 	const handleNodeClick = useCallback(

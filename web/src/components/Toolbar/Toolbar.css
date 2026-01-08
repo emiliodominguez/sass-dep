@@ -3,7 +3,7 @@
 	align-items: center;
 	gap: 12px;
 	padding: 12px 20px;
-	background: var(--color-bg-primary);
+	background-color: var(--color-bg-primary);
 	border-bottom: 1px solid var(--color-border);
 	z-index: 10;
 	transition:
@@ -37,7 +37,7 @@
 	border: 1px solid var(--color-border);
 	border-radius: 10px;
 	font-size: 14px;
-	background: var(--color-bg-secondary);
+	background-color: var(--color-bg-secondary);
 	color: var(--color-text-primary);
 	transition: all 0.2s ease;
 }
@@ -45,7 +45,7 @@
 .search-input:focus {
 	outline: none;
 	border-color: var(--color-accent);
-	background: var(--color-bg-primary);
+	background-color: var(--color-bg-primary);
 	box-shadow: 0 0 0 3px var(--color-accent-light);
 }
 
@@ -62,7 +62,7 @@
 	width: 22px;
 	height: 22px;
 	border: none;
-	background: var(--color-bg-tertiary);
+	background-color: var(--color-bg-tertiary);
 	border-radius: 6px;
 	color: var(--color-text-secondary);
 	cursor: pointer;
@@ -70,7 +70,7 @@
 }
 
 .clear-button:hover {
-	background: var(--color-border-hover);
+	background-color: var(--color-border-hover);
 	color: var(--color-text-primary);
 	transform: scale(1.05);
 }
@@ -86,7 +86,7 @@
 	padding: 10px 14px;
 	border: 1px solid var(--color-border);
 	border-radius: 10px;
-	background: var(--color-bg-secondary);
+	background-color: var(--color-bg-secondary);
 	color: var(--color-text-secondary);
 	font-size: 14px;
 	font-weight: 500;
@@ -98,19 +98,19 @@
 }
 
 .filter-toggle:hover {
-	background: var(--color-bg-tertiary);
+	background-color: var(--color-bg-tertiary);
 	border-color: var(--color-border-hover);
 	transform: translateY(-1px);
 }
 
 .filter-toggle.active {
-	background: var(--color-accent-light);
+	background-color: var(--color-accent-light);
 	border-color: var(--color-accent);
 	color: var(--color-accent);
 }
 
 .filter-toggle.has-filters {
-	background: var(--color-accent-light);
+	background-color: var(--color-accent-light);
 	border-color: var(--color-accent);
 }
 
@@ -121,7 +121,7 @@
 	min-width: 20px;
 	height: 20px;
 	padding: 0 6px;
-	background: var(--color-accent);
+	background-color: var(--color-accent);
 	color: #ffffff;
 	border-radius: 10px;
 	font-size: 11px;
@@ -134,7 +134,7 @@
 	left: 0;
 	min-width: 220px;
 	padding: 8px 0;
-	background: var(--color-bg-elevated);
+	background-color: var(--color-bg-elevated);
 	border: 1px solid var(--color-border);
 	border-radius: 14px;
 	box-shadow: var(--shadow-lg);
@@ -174,7 +174,7 @@
 
 .clear-filters {
 	border: none;
-	background: none;
+	background-color: transparent;
 	color: var(--color-accent);
 	font-size: 12px;
 	font-weight: 600;
@@ -215,7 +215,7 @@
 }
 
 .filter-option:hover {
-	background: var(--color-bg-secondary);
+	background-color: var(--color-bg-secondary);
 }
 
 .filter-option input[type="checkbox"] {
@@ -235,37 +235,37 @@
 
 /* Filter swatch colors using CSS variables */
 .filter-swatch-entry_point {
-	background: var(--color-flag-entry-point);
+	background-color: var(--color-flag-entry-point);
 	border-color: var(--color-flag-entry-point-border);
 }
 
 .filter-swatch-in_cycle {
-	background: var(--color-flag-in-cycle);
+	background-color: var(--color-flag-in-cycle);
 	border-color: var(--color-flag-in-cycle-border);
 }
 
 .filter-swatch-orphan {
-	background: var(--color-flag-orphan);
+	background-color: var(--color-flag-orphan);
 	border-color: var(--color-flag-orphan-border);
 }
 
 .filter-swatch-leaf {
-	background: var(--color-flag-leaf);
+	background-color: var(--color-flag-leaf);
 	border-color: var(--color-flag-leaf-border);
 }
 
 .filter-swatch-high_fan_in {
-	background: var(--color-flag-high-fan-in);
+	background-color: var(--color-flag-high-fan-in);
 	border-color: var(--color-flag-high-fan-in-border);
 }
 
 .filter-swatch-high_fan_out {
-	background: var(--color-flag-high-fan-out);
+	background-color: var(--color-flag-high-fan-out);
 	border-color: var(--color-flag-high-fan-out-border);
 }
 
 .filter-swatch-no_flags {
-	background: var(--color-flag-default);
+	background-color: var(--color-flag-default);
 	border-color: var(--color-flag-default-border);
 }
 
@@ -274,7 +274,7 @@
 	color: var(--color-text-secondary);
 	white-space: nowrap;
 	padding: 8px 12px;
-	background: var(--color-bg-secondary);
+	background-color: var(--color-bg-secondary);
 	border-radius: 8px;
 	font-weight: 500;
 }
@@ -286,7 +286,7 @@
 	padding: 10px 14px;
 	border: 1px solid var(--color-border);
 	border-radius: 10px;
-	background: var(--color-bg-secondary);
+	background-color: var(--color-bg-secondary);
 	color: var(--color-text-secondary);
 	font-size: 14px;
 	font-weight: 500;
@@ -295,7 +295,7 @@
 }
 
 .fit-view-button:hover {
-	background: var(--color-accent-light);
+	background-color: var(--color-accent-light);
 	border-color: var(--color-accent);
 	color: var(--color-accent);
 	transform: translateY(-1px);
@@ -312,7 +312,7 @@
 	padding: 10px 14px;
 	border: 1px solid var(--color-border);
 	border-radius: 10px;
-	background: var(--color-bg-secondary);
+	background-color: var(--color-bg-secondary);
 	color: var(--color-text-secondary);
 	font-size: 14px;
 	font-weight: 500;
@@ -321,7 +321,7 @@
 }
 
 .export-button:hover:not(:disabled) {
-	background: var(--color-accent-light);
+	background-color: var(--color-accent-light);
 	border-color: var(--color-accent);
 	color: var(--color-accent);
 	transform: translateY(-1px);
@@ -337,7 +337,7 @@
 }
 
 .export-button.exporting {
-	background: var(--color-accent-light);
+	background-color: var(--color-accent-light);
 	border-color: var(--color-accent);
 	color: var(--color-accent);
 }
@@ -363,7 +363,7 @@
 	height: 40px;
 	border: 1px solid var(--color-border);
 	border-radius: 10px;
-	background: var(--color-bg-secondary);
+	background-color: var(--color-bg-secondary);
 	color: var(--color-text-secondary);
 	cursor: pointer;
 	transition: all 0.2s ease;
@@ -371,7 +371,7 @@
 }
 
 .theme-toggle:hover {
-	background: var(--color-bg-tertiary);
+	background-color: var(--color-bg-tertiary);
 	color: var(--color-accent);
 	border-color: var(--color-accent);
 	transform: rotate(15deg);

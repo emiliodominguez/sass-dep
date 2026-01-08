@@ -20,11 +20,13 @@ export const FILTER_OPTIONS: { flag: NodeFlag | "no_flags"; label: string }[] = 
 export const ALL_FILTER_FLAGS = FILTER_OPTIONS.map((o) => o.flag);
 
 interface ToolbarProps {
+	// Data props
 	searchQuery: string;
 	activeFilters: string[];
 	nodeCount: number;
 	visibleCount: number;
 	isExporting?: boolean;
+	// Callbacks
 	onSearchChange: (query: string) => void;
 	onFiltersChange: (filters: string[]) => void;
 	onExportPng?: () => void;

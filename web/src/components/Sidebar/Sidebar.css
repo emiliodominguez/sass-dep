@@ -1,7 +1,7 @@
 .sidebar {
 	width: 320px;
 	height: 100%;
-	background: var(--color-bg-primary);
+	background-color: var(--color-bg-primary);
 	border-left: 1px solid var(--color-border);
 	display: flex;
 	flex-direction: column;
@@ -14,7 +14,7 @@
 .sidebar-header {
 	padding: 20px;
 	border-bottom: 1px solid var(--color-border);
-	background: var(--color-bg-secondary);
+	background-color: var(--color-bg-secondary);
 }
 
 .sidebar-header h2 {
@@ -63,7 +63,7 @@
 	padding: 8px 12px;
 	border: 1px solid var(--color-border);
 	border-radius: 8px;
-	background: var(--color-bg-secondary);
+	background-color: var(--color-bg-secondary);
 	color: var(--color-text-secondary);
 	font-size: 12px;
 	font-weight: 600;
@@ -72,7 +72,7 @@
 }
 
 .focus-button:hover {
-	background: var(--color-accent-light);
+	background-color: var(--color-accent-light);
 	border-color: var(--color-accent);
 	color: var(--color-accent);
 	transform: translateY(-1px);
@@ -107,7 +107,7 @@
 	word-break: break-all;
 	margin: 0;
 	padding: 10px 12px;
-	background: var(--color-bg-tertiary);
+	background-color: var(--color-bg-tertiary);
 	border-radius: 8px;
 	border: 1px solid var(--color-border);
 }
@@ -121,7 +121,7 @@
 	max-height: 80px;
 	overflow-y: auto;
 	padding: 10px 12px;
-	background: var(--color-bg-tertiary);
+	background-color: var(--color-bg-tertiary);
 	border-radius: 8px;
 	border: 1px solid var(--color-border);
 }
@@ -139,7 +139,7 @@
 	display: flex;
 	flex-direction: column;
 	padding: 12px;
-	background: var(--color-bg-tertiary);
+	background-color: var(--color-bg-tertiary);
 	border-radius: 10px;
 	border: 1px solid var(--color-border);
 	transition: all 0.15s ease;
@@ -197,32 +197,32 @@
 
 /* Flag-specific colors using CSS variables */
 .flag-badge.flag-entry_point {
-	background: var(--color-flag-entry-point);
+	background-color: var(--color-flag-entry-point);
 	border-color: var(--color-flag-entry-point-border);
 }
 
 .flag-badge.flag-orphan {
-	background: var(--color-flag-orphan);
+	background-color: var(--color-flag-orphan);
 	border-color: var(--color-flag-orphan-border);
 }
 
 .flag-badge.flag-in_cycle {
-	background: var(--color-flag-in-cycle);
+	background-color: var(--color-flag-in-cycle);
 	border-color: var(--color-flag-in-cycle-border);
 }
 
 .flag-badge.flag-leaf {
-	background: var(--color-flag-leaf);
+	background-color: var(--color-flag-leaf);
 	border-color: var(--color-flag-leaf-border);
 }
 
 .flag-badge.flag-high_fan_in {
-	background: var(--color-flag-high-fan-in);
+	background-color: var(--color-flag-high-fan-in);
 	border-color: var(--color-flag-high-fan-in-border);
 }
 
 .flag-badge.flag-high_fan_out {
-	background: var(--color-flag-high-fan-out);
+	background-color: var(--color-flag-high-fan-out);
 	border-color: var(--color-flag-high-fan-out-border);
 }
 
@@ -232,7 +232,7 @@
 	font-style: italic;
 	margin: 0;
 	padding: 8px 12px;
-	background: var(--color-bg-tertiary);
+	background-color: var(--color-bg-tertiary);
 	border-radius: 8px;
 	border: 1px dashed var(--color-border);
 }
@@ -253,7 +253,7 @@
 	color: var(--color-text-primary);
 	margin: 0;
 	padding: 10px 12px;
-	background: var(--color-bg-tertiary);
+	background-color: var(--color-bg-tertiary);
 	border-radius: 8px;
 	border: 1px solid var(--color-border);
 }
@@ -261,7 +261,7 @@
 .namespace {
 	font-family: "SF Mono", Monaco, "Cascadia Code", "Fira Code", monospace;
 	font-size: 12px;
-	background: var(--color-bg-tertiary);
+	background-color: var(--color-bg-tertiary);
 	padding: 4px 8px;
 	border-radius: 6px;
 	color: var(--color-text-primary);
@@ -272,7 +272,7 @@
 	display: inline-flex;
 	align-items: center;
 	padding: 4px 10px;
-	background: var(--color-accent-light);
+	background-color: var(--color-accent-light);
 	color: var(--color-accent);
 	border-radius: 6px;
 	font-size: 11px;
@@ -287,7 +287,7 @@
 	margin-top: 32px;
 	text-align: center;
 	padding: 16px;
-	background: var(--color-bg-tertiary);
+	background-color: var(--color-bg-tertiary);
 	border-radius: 10px;
 	border: 1px dashed var(--color-border);
 }
@@ -330,31 +330,31 @@
 }
 
 .recommendation-warning {
-	background: rgba(245, 158, 11, 0.1);
+	background-color: rgba(245, 158, 11, 0.1);
 	border-color: rgba(245, 158, 11, 0.3);
 }
 
 .recommendation-warning .recommendation-icon {
-	background: rgba(245, 158, 11, 0.2);
+	background-color: rgba(245, 158, 11, 0.2);
 	color: #f59e0b;
 }
 
 .recommendation-info {
-	background: rgba(59, 130, 246, 0.1);
+	background-color: rgba(59, 130, 246, 0.1);
 	border-color: rgba(59, 130, 246, 0.3);
 }
 
 .recommendation-info .recommendation-icon {
-	background: rgba(59, 130, 246, 0.2);
+	background-color: rgba(59, 130, 246, 0.2);
 	color: #3b82f6;
 }
 
 .recommendation-success {
-	background: rgba(34, 197, 94, 0.1);
+	background-color: rgba(34, 197, 94, 0.1);
 	border-color: rgba(34, 197, 94, 0.3);
 }
 
 .recommendation-success .recommendation-icon {
-	background: rgba(34, 197, 94, 0.2);
+	background-color: rgba(34, 197, 94, 0.2);
 	color: #22c55e;
 }

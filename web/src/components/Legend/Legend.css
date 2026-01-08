@@ -2,7 +2,7 @@
 	position: absolute;
 	bottom: 16px;
 	left: 16px;
-	background: var(--color-bg-elevated);
+	background-color: var(--color-bg-elevated);
 	border-radius: 12px;
 	padding: 14px 18px;
 	box-shadow: var(--shadow-lg);
@@ -49,7 +49,7 @@
 }
 
 .legend-item:hover {
-	background: var(--color-bg-secondary);
+	background-color: var(--color-bg-secondary);
 }
 
 .legend-label {
@@ -63,7 +63,7 @@
 	width: 16px;
 	height: 16px;
 	border-radius: 50%;
-	background: var(--color-bg-tertiary);
+	background-color: var(--color-bg-tertiary);
 	color: var(--color-text-tertiary);
 	font-size: 10px;
 	font-weight: 700;
@@ -87,7 +87,7 @@
 	transform: translateY(-50%);
 	width: 200px;
 	padding: 10px 12px;
-	background: var(--color-bg-elevated);
+	background-color: var(--color-bg-elevated);
 	border: 1px solid var(--color-border);
 	border-radius: 8px;
 	box-shadow: var(--shadow-lg);
@@ -141,32 +141,32 @@
 
 /* Swatch colors using CSS variables */
 .swatch-entry-point {
-	background: var(--color-flag-entry-point);
+	background-color: var(--color-flag-entry-point);
 	border-color: var(--color-flag-entry-point-border);
 }
 
 .swatch-in-cycle {
-	background: var(--color-flag-in-cycle);
+	background-color: var(--color-flag-in-cycle);
 	border-color: var(--color-flag-in-cycle-border);
 }
 
 .swatch-orphan {
-	background: var(--color-flag-orphan);
+	background-color: var(--color-flag-orphan);
 	border-color: var(--color-flag-orphan-border);
 }
 
 .swatch-leaf {
-	background: var(--color-flag-leaf);
+	background-color: var(--color-flag-leaf);
 	border-color: var(--color-flag-leaf-border);
 }
 
 .swatch-high-fan-in {
-	background: var(--color-flag-high-fan-in);
+	background-color: var(--color-flag-high-fan-in);
 	border-color: var(--color-flag-high-fan-in-border);
 }
 
 .swatch-high-fan-out {
-	background: var(--color-flag-high-fan-out);
+	background-color: var(--color-flag-high-fan-out);
 	border-color: var(--color-flag-high-fan-out-border);
 }
 
@@ -222,7 +222,7 @@
 	min-width: 20px;
 	height: 18px;
 	padding: 0 5px;
-	background: var(--color-bg-tertiary);
+	background-color: var(--color-bg-tertiary);
 	border: 1px solid var(--color-border);
 	border-radius: 4px;
 	font-family: "SF Mono", Monaco, "Cascadia Code", "Fira Code", monospace;

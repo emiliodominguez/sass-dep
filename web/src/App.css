@@ -3,7 +3,7 @@
 	flex-direction: column;
 	height: 100%;
 	width: 100%;
-	background: var(--color-bg-primary);
+	background-color: var(--color-bg-primary);
 	transition: background 0.2s ease;
 }
 
