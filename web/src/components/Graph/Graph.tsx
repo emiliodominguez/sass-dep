@@ -414,9 +414,23 @@ function GraphInner({
 					const width = flowNode?.measured?.width ?? 180;
 					const height = flowNode?.measured?.height ?? 60;
 
+					// Calculate absolute position (account for parent group if nested)
+					let absoluteX = node.position.x;
+					let absoluteY = node.position.y;
+
+					// If node has a parent (grouped), add parent's position
+					if (node.parentId) {
+						// eslint-disable-next-line @typescript-eslint/no-explicit-any
+						const parentNode = nodes.find((n: any) => n.id === node.parentId);
+						if (parentNode) {
+							absoluteX += parentNode.position.x;
+							absoluteY += parentNode.position.y;
+						}
+					}
+
 					// Center on node position
-					const x = node.position.x + width / 2;
-					const y = node.position.y + height / 2;
+					const x = absoluteX + width / 2;
+					const y = absoluteY + height / 2;
 					setCenter(x, y, { zoom: 1.5, duration: 500 });
 
 					// Allow auto-fit again after animation completes
