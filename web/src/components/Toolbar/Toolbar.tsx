@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, forwardRef, useImperativeHandle } from "react";
+import { useState, useCallback, useEffect, useRef, useImperativeHandle } from "react";
 import type { NodeFlag } from "../../types/sass-dep";
 import { useTheme } from "../../contexts/ThemeContext";
 import "./Toolbar.css";
@@ -61,12 +61,34 @@ interface ToolbarProps {
 	onFitView?: () => void;
 	onToggleCycles?: (highlight: boolean) => void;
 	onToggleGroupByFolder?: (group: boolean) => void;
+	// Ref (React 19 style)
+	ref?: React.Ref<ToolbarHandle>;
 }
 
-export const Toolbar = forwardRef<ToolbarHandle, ToolbarProps>(function Toolbar(
-	{ searchQuery, activeFilters, advancedFilters, nodeCount, visibleCount, cycleCount, maxDepth, maxFanIn, maxFanOut, isExporting, highlightCycles, groupByFolder, onSearchChange, onFiltersChange, onAdvancedFiltersChange, onExportPng, onExportSvg, onExportJson, onFitView, onToggleCycles, onToggleGroupByFolder },
+export function Toolbar({
+	searchQuery,
+	activeFilters,
+	advancedFilters,
+	nodeCount,
+	visibleCount,
+	cycleCount,
+	maxDepth,
+	maxFanIn,
+	maxFanOut,
+	isExporting,
+	highlightCycles,
+	groupByFolder,
+	onSearchChange,
+	onFiltersChange,
+	onAdvancedFiltersChange,
+	onExportPng,
+	onExportSvg,
+	onExportJson,
+	onFitView,
+	onToggleCycles,
+	onToggleGroupByFolder,
 	ref,
-) {
+}: ToolbarProps) {
 	const [isFilterOpen, setIsFilterOpen] = useState(false);
 	const [isExportOpen, setIsExportOpen] = useState(false);
 	const [showAdvanced, setShowAdvanced] = useState(false);
@@ -141,7 +163,14 @@ export const Toolbar = forwardRef<ToolbarHandle, ToolbarProps>(function Toolbar(
 					<circle cx="11" cy="11" r="8" />
 					<line x1="21" y1="21" x2="16.65" y2="16.65" />
 				</svg>
-				<input ref={searchInputRef} type="text" placeholder="Search files... (press /)" value={searchQuery} onChange={(e) => onSearchChange(e.target.value)} className="search-input" />
+				<input
+					ref={searchInputRef}
+					type="text"
+					placeholder="Search files... (press /)"
+					value={searchQuery}
+					onChange={(e) => onSearchChange(e.target.value)}
+					className="search-input"
+				/>
 				{searchQuery && (
 					<button className="clear-button" onClick={handleClearSearch} title="Clear search">
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -161,9 +190,7 @@ export const Toolbar = forwardRef<ToolbarHandle, ToolbarProps>(function Toolbar(
 						<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
 					</svg>
 					Filter
-					{(activeFilters.length > 0 || hasAdvancedFilters) && (
-						<span className="filter-count">{activeFilters.length + (hasAdvancedFilters ? 1 : 0)}</span>
-					)}
+					{(activeFilters.length > 0 || hasAdvancedFilters) && <span className="filter-count">{activeFilters.length + (hasAdvancedFilters ? 1 : 0)}</span>}
 				</button>
 
 				{isFilterOpen && (
@@ -437,7 +464,7 @@ export const Toolbar = forwardRef<ToolbarHandle, ToolbarProps>(function Toolbar(
 			<ThemeToggle />
 		</div>
 	);
-});
+}
 
 function ThemeToggle() {
 	const { theme, toggleTheme } = useTheme();

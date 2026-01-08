@@ -35,7 +35,7 @@ export function useGraphData(): UseGraphDataReturn {
 				} else {
 					throw new Error(`HTTP ${response.status}`);
 				}
-			} catch (e) {
+			} catch {
 				// Network error or no server - this is fine, user can upload file
 				console.log("No API available, waiting for file upload");
 				setError(null);

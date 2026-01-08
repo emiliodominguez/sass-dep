@@ -13,12 +13,7 @@ interface KeyboardShortcutsOptions {
  * - `f`: Fit view
  * - `Esc`: Clear selection and search
  */
-export function useKeyboardShortcuts({
-	onEscape,
-	onFocusSearch,
-	onFitView,
-	onClearSelection,
-}: KeyboardShortcutsOptions): void {
+export function useKeyboardShortcuts({ onEscape, onFocusSearch, onFitView, onClearSelection }: KeyboardShortcutsOptions): void {
 	const handleKeyDown = useCallback(
 		(event: KeyboardEvent) => {
 			const target = event.target as HTMLElement;

@@ -76,11 +76,7 @@ function createPathEdgeKeys(path: string[], edges: SassDepOutput["edges"]): Set<
 }
 
 /** Computes path highlighting data between two selected nodes. */
-export function usePathHighlight(
-	sourceNodeId: string | null,
-	targetNodeId: string | null,
-	edges: SassDepOutput["edges"],
-): PathHighlightResult {
+export function usePathHighlight(sourceNodeId: string | null, targetNodeId: string | null, edges: SassDepOutput["edges"]): PathHighlightResult {
 	return useMemo(() => {
 		if (!sourceNodeId || !targetNodeId || sourceNodeId === targetNodeId) {
 			return {

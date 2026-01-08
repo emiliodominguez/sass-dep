@@ -37,7 +37,14 @@ export function Sidebar({ selectedNode, selectedEdge, statistics, edges, onFocus
 
 			<div className="sidebar-content">
 				{selectedNode ? (
-					<NodeDetails nodeId={selectedNode.id} node={selectedNode.node} dependents={dependents} dependencies={dependencies} edges={edges} onFocusNode={onFocusNode} />
+					<NodeDetails
+						nodeId={selectedNode.id}
+						node={selectedNode.node}
+						dependents={dependents}
+						dependencies={dependencies}
+						edges={edges}
+						onFocusNode={onFocusNode}
+					/>
 				) : selectedEdge ? (
 					<EdgeDetails edge={selectedEdge} />
 				) : (

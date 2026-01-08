@@ -38,10 +38,7 @@ function buildTree(
 	visited.add(rootId);
 
 	// Find connected nodes based on direction
-	const connectedIds =
-		direction === "dependents"
-			? edges.filter((e) => e.to === rootId).map((e) => e.from)
-			: edges.filter((e) => e.from === rootId).map((e) => e.to);
+	const connectedIds = direction === "dependents" ? edges.filter((e) => e.to === rootId).map((e) => e.from) : edges.filter((e) => e.from === rootId).map((e) => e.to);
 
 	for (const childId of connectedIds) {
 		if (!visited.has(childId)) {
@@ -52,15 +49,7 @@ function buildTree(
 	return node;
 }
 
-function TreeNode({
-	node,
-	onFocusNode,
-	isRoot = false,
-}: {
-	node: TreeNodeData;
-	onFocusNode?: (nodeId: string) => void;
-	isRoot?: boolean;
-}) {
+function TreeNode({ node, onFocusNode, isRoot = false }: { node: TreeNodeData; onFocusNode?: (nodeId: string) => void; isRoot?: boolean }) {
 	const [isExpanded, setIsExpanded] = useState(node.depth < 2);
 	const hasChildren = node.children.length > 0;
 
@@ -73,7 +62,15 @@ function TreeNode({
 			<div className="tree-node-row">
 				{hasChildren ? (
 					<button className="tree-toggle" onClick={toggleExpand} aria-label={isExpanded ? "Collapse" : "Expand"}>
-						<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)" }}>
+						<svg
+							width="10"
+							height="10"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth="2"
+							style={{ transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)" }}
+						>
 							<polyline points="9 18 15 12 9 6" />
 						</svg>
 					</button>

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, forwardRef, useImperativeHandle, useState, useEffect, useRef } from "react";
+import { useCallback, useMemo, useImperativeHandle, useState, useEffect, useRef } from "react";
 import { ReactFlow, Background, Controls, MiniMap, useNodesState, useEdgesState, useReactFlow, ReactFlowProvider, getNodesBounds } from "@xyflow/react";
 import { toPng, toSvg } from "html-to-image";
 import "@xyflow/react/dist/style.css";
@@ -40,9 +40,24 @@ interface GraphProps {
 	onNodeSelect?: (nodeId: string, node: OutputNode, isShiftClick?: boolean) => void;
 	onEdgeSelect?: (edge: OutputEdge) => void;
 	onClearSelection?: () => void;
+	// Ref (React 19 style)
+	ref?: React.Ref<GraphHandle>;
 }
 
-function GraphInner({ data, searchQuery, activeFilters, advancedFilters, pathSource, pathTarget, highlightCycles, groupByFolder, onNodeSelect, onEdgeSelect, onClearSelection }: GraphProps, ref: React.Ref<GraphHandle>) {
+function GraphInner({
+	data,
+	searchQuery,
+	activeFilters,
+	advancedFilters,
+	pathSource,
+	pathTarget,
+	highlightCycles,
+	groupByFolder,
+	onNodeSelect,
+	onEdgeSelect,
+	onClearSelection,
+	ref,
+}: GraphProps) {
 	const { setCenter, getNode, fitView } = useReactFlow();
 	const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
 
@@ -55,11 +70,14 @@ function GraphInner({ data, searchQuery, activeFilters, advancedFilters, pathSou
 		const edgeKeys = new Set<string>();
 
 		for (const cycle of data.analysis.cycles) {
-			for (let i = 0; i < cycle.length; i++) {
-				nodeIds.add(cycle[i]);
+			for (const [i, nodeId] of cycle.entries()) {
+				nodeIds.add(nodeId);
 				// Create edge key for each consecutive pair in the cycle
 				const nextIndex = (i + 1) % cycle.length;
-				edgeKeys.add(`${cycle[i]}->${cycle[nextIndex]}`);
+				const nextNodeId = cycle[nextIndex];
+				if (nextNodeId) {
+					edgeKeys.add(`${nodeId}->${nextNodeId}`);
+				}
 			}
 		}
 
@@ -477,13 +495,11 @@ function GraphInner({ data, searchQuery, activeFilters, advancedFilters, pathSou
 	);
 }
 
-const GraphWithRef = forwardRef(GraphInner);
-
 // Wrap with ReactFlowProvider so we can use hooks
-export const Graph = forwardRef<GraphHandle, GraphProps>((props, ref) => (
-	<ReactFlowProvider>
-		<GraphWithRef {...props} ref={ref} />
-	</ReactFlowProvider>
-));
-
-Graph.displayName = "Graph";
+export function Graph(props: GraphProps) {
+	return (
+		<ReactFlowProvider>
+			<GraphInner {...props} />
+		</ReactFlowProvider>
+	);
+}

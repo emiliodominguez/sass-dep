@@ -71,8 +71,7 @@ export function transformToFlowElements(data: SassDepOutput): {
 	}
 
 	// Transform edges
-	for (let i = 0; i < data.edges.length; i++) {
-		const edge = data.edges[i];
+	for (const [i, edge] of data.edges.entries()) {
 		edges.push({
 			id: `edge-${i}`,
 			source: edge.from,
@@ -138,7 +137,7 @@ export function applyDagreLayout(nodes: FileNode[], edges: DependencyEdge[]): Fi
 /** Extract just the filename from a path */
 function getShortPath(path: string): string {
 	const parts = path.split("/");
-	return parts[parts.length - 1];
+	return parts.at(-1) ?? path;
 }
 
 /** Get the primary flag for coloring (by priority) */
@@ -225,10 +224,7 @@ export function transformToGroupedFlowElements(data: SassDepOutput): {
 }
 
 /** Apply layout for grouped nodes */
-export function applyGroupedDagreLayout(
-	nodes: (FileNode | GroupNode)[],
-	edges: DependencyEdge[],
-): (FileNode | GroupNode)[] {
+export function applyGroupedDagreLayout(nodes: (FileNode | GroupNode)[], edges: DependencyEdge[]): (FileNode | GroupNode)[] {
 	// Separate group nodes and file nodes
 	const groupNodes = nodes.filter((n) => n.type === "group") as GroupNode[];
 	const fileNodes = nodes.filter((n) => n.type === "fileNode") as FileNode[];

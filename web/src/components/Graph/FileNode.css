@@ -201,7 +201,9 @@
 /* Path highlighting styles */
 .file-node.path-source {
 	border-color: var(--color-accent);
-	box-shadow: 0 0 0 3px var(--color-accent-light), var(--shadow-glow);
+	box-shadow:
+		0 0 0 3px var(--color-accent-light),
+		var(--shadow-glow);
 }
 
 .file-node.path-source::before {
@@ -221,7 +223,9 @@
 
 .file-node.path-target {
 	border-color: #22c55e;
-	box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2), 0 0 20px rgba(34, 197, 94, 0.15);
+	box-shadow:
+		0 0 0 3px rgba(34, 197, 94, 0.2),
+		0 0 20px rgba(34, 197, 94, 0.15);
 }
 
 .file-node.path-target::before {

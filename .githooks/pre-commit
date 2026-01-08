@@ -1,32 +1,100 @@
 #!/bin/sh
 #
 # Pre-commit hook for sass-dep
-# Runs cargo test and cargo clippy before allowing commits
+# Runs checks for both Rust and web app before allowing commits
 
 set -e
 
 echo "Running pre-commit checks..."
 
-# Check if cargo is available
-if ! command -v cargo &> /dev/null; then
+# Track if any checks ran
+CHECKS_RAN=0
+
+# ============================================
+# Rust checks
+# ============================================
+if command -v cargo &> /dev/null; then
+    # Check if we have staged Rust files
+    RUST_STAGED=$(git diff --cached --name-only --diff-filter=ACMR -- '*.rs' 'Cargo.toml' 'Cargo.lock' 2>/dev/null || true)
+
+    if [ -n "$RUST_STAGED" ]; then
+        echo ""
+        echo "=== Rust checks ==="
+        CHECKS_RAN=1
+
+        # Run clippy
+        echo "Running cargo clippy..."
+        cargo clippy --all-targets --all-features -- -D warnings
+        if [ $? -ne 0 ]; then
+            echo "cargo clippy failed. Please fix the warnings before committing."
+            exit 1
+        fi
+
+        # Run tests
+        echo "Running cargo test..."
+        cargo test --all-features
+        if [ $? -ne 0 ]; then
+            echo "cargo test failed. Please fix the failing tests before committing."
+            exit 1
+        fi
+
+        echo "Rust checks passed!"
+    fi
+else
     echo "Warning: cargo not found, skipping Rust checks"
-    exit 0
 fi
 
-# Run clippy
-echo "Running cargo clippy..."
-cargo clippy --all-targets --all-features -- -D warnings
-if [ $? -ne 0 ]; then
-    echo "cargo clippy failed. Please fix the warnings before committing."
-    exit 1
+# ============================================
+# Web app checks
+# ============================================
+if command -v npm &> /dev/null && [ -d "web" ]; then
+    # Check if we have staged web files
+    WEB_STAGED=$(git diff --cached --name-only --diff-filter=ACMR -- 'web/src/**/*.ts' 'web/src/**/*.tsx' 'web/src/**/*.css' 2>/dev/null || true)
+
+    if [ -n "$WEB_STAGED" ]; then
+        echo ""
+        echo "=== Web app checks ==="
+        CHECKS_RAN=1
+
+        cd web
+
+        # Run TypeScript type checking
+        echo "Running typecheck..."
+        npm run typecheck
+        if [ $? -ne 0 ]; then
+            echo "TypeScript type checking failed. Please fix the errors before committing."
+            exit 1
+        fi
+
+        # Run ESLint
+        echo "Running lint..."
+        npm run lint
+        if [ $? -ne 0 ]; then
+            echo "ESLint failed. Please fix the errors before committing."
+            exit 1
+        fi
+
+        # Run Prettier check
+        echo "Checking formatting..."
+        npx prettier --check src
+        if [ $? -ne 0 ]; then
+            echo "Formatting check failed. Run 'npm run format' to fix."
+            exit 1
+        fi
+
+        cd ..
+
+        echo "Web app checks passed!"
+    fi
+else
+    if [ -d "web" ]; then
+        echo "Warning: npm not found, skipping web checks"
+    fi
 fi
 
-# Run tests
-echo "Running cargo test..."
-cargo test --all-features
-if [ $? -ne 0 ]; then
-    echo "cargo test failed. Please fix the failing tests before committing."
-    exit 1
+if [ $CHECKS_RAN -eq 1 ]; then
+    echo ""
+    echo "All pre-commit checks passed!"
+else
+    echo "No relevant files staged, skipping checks."
 fi
-
-echo "All pre-commit checks passed!"
