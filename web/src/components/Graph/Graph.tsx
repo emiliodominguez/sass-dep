@@ -438,9 +438,6 @@ function GraphInner({
 						isFocusingRef.current = false;
 					}, 600);
 				}, 50);
-
-				// Clear focus after 3 seconds
-				setTimeout(() => setFocusedNodeId(null), 3000);
 			},
 			exportPng,
 			exportSvg,
