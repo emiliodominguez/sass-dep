@@ -6,6 +6,7 @@ import "@xyflow/react/dist/style.css";
 import FileNode from "./FileNode";
 import { transformToFlowElements, applyDagreLayout } from "./utils";
 import { getNodeColor } from "./styles";
+import { usePathHighlight } from "../../hooks/usePathHighlight";
 import type { SassDepOutput, OutputNode, OutputEdge } from "../../types/sass-dep";
 import "./Graph.css";
 
@@ -23,14 +24,19 @@ interface GraphProps {
 	data: SassDepOutput;
 	searchQuery: string;
 	activeFilters: string[];
-	onNodeSelect?: (nodeId: string, node: OutputNode) => void;
+	pathSource: string | null;
+	pathTarget: string | null;
+	onNodeSelect?: (nodeId: string, node: OutputNode, isShiftClick?: boolean) => void;
 	onEdgeSelect?: (edge: OutputEdge) => void;
 	onClearSelection?: () => void;
 }
 
-function GraphInner({ data, searchQuery, activeFilters, onNodeSelect, onEdgeSelect, onClearSelection }: GraphProps, ref: React.Ref<GraphHandle>) {
+function GraphInner({ data, searchQuery, activeFilters, pathSource, pathTarget, onNodeSelect, onEdgeSelect, onClearSelection }: GraphProps, ref: React.Ref<GraphHandle>) {
 	const { setCenter, getNode, fitView } = useReactFlow();
 	const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
+
+	// Path highlighting
+	const { pathNodeIds, pathEdgeKeys, hasPath } = usePathHighlight(pathSource, pathTarget, data.edges);
 
 	// Transform and layout nodes
 	const { initialNodes, initialEdges } = useMemo(() => {
@@ -62,6 +68,9 @@ function GraphInner({ data, searchQuery, activeFilters, onNodeSelect, onEdgeSele
 
 			const isVisible = matchesSearch && matchesFilters;
 			const isFocused = node.id === focusedNodeId;
+			const isPathSource = node.id === pathSource;
+			const isPathTarget = node.id === pathTarget;
+			const isInPath = hasPath && pathNodeIds.has(node.id);
 
 			return {
 				...node,
@@ -69,10 +78,13 @@ function GraphInner({ data, searchQuery, activeFilters, onNodeSelect, onEdgeSele
 				data: {
 					...node.data,
 					isFocused,
+					isPathSource,
+					isPathTarget,
+					isInPath,
 				},
 			};
 		});
-	}, [nodes, searchQuery, activeFilters, focusedNodeId]);
+	}, [nodes, searchQuery, activeFilters, focusedNodeId, pathSource, pathTarget, hasPath, pathNodeIds]);
 
 	// Filter edges to only show connections between visible nodes
 	const filteredEdges = useMemo(() => {
@@ -82,11 +94,20 @@ function GraphInner({ data, searchQuery, activeFilters, onNodeSelect, onEdgeSele
 		);
 
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		return edges.map((edge: any) => ({
-			...edge,
-			hidden: !visibleNodeIds.has(edge.source) || !visibleNodeIds.has(edge.target),
-		}));
-	}, [edges, filteredNodes]);
+		return edges.map((edge: any) => {
+			const edgeKey = `${edge.source}->${edge.target}`;
+			const isInPath = hasPath && pathEdgeKeys.has(edgeKey);
+
+			return {
+				...edge,
+				hidden: !visibleNodeIds.has(edge.source) || !visibleNodeIds.has(edge.target),
+				style: isInPath
+					? { stroke: "var(--color-accent)", strokeWidth: 3 }
+					: edge.style,
+				animated: isInPath,
+			};
+		});
+	}, [edges, filteredNodes, hasPath, pathEdgeKeys]);
 
 	// Track if this is the initial render
 	const isInitialRender = useRef(true);
@@ -204,10 +225,10 @@ function GraphInner({ data, searchQuery, activeFilters, onNodeSelect, onEdgeSele
 
 	const handleNodeClick = useCallback(
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		(_event: React.MouseEvent, node: any) => {
+		(event: React.MouseEvent, node: any) => {
 			const nodeData = data.nodes[node.id];
 			if (nodeData && onNodeSelect) {
-				onNodeSelect(node.id, nodeData);
+				onNodeSelect(node.id, nodeData, event.shiftKey);
 			}
 		},
 		[data.nodes, onNodeSelect],

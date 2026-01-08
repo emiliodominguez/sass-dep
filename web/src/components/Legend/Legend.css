@@ -201,3 +201,33 @@
 .line-import {
 	border-color: var(--color-edge-import);
 }
+
+/* Keyboard shortcuts section */
+.legend-shortcuts {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding-top: 10px;
+	border-top: 1px solid var(--color-border);
+	margin-top: 4px;
+	font-size: 10px;
+	color: var(--color-text-tertiary);
+	flex-wrap: wrap;
+}
+
+.shortcut-key {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 20px;
+	height: 18px;
+	padding: 0 5px;
+	background: var(--color-bg-tertiary);
+	border: 1px solid var(--color-border);
+	border-radius: 4px;
+	font-family: "SF Mono", Monaco, "Cascadia Code", "Fira Code", monospace;
+	font-size: 9px;
+	font-weight: 600;
+	color: var(--color-text-secondary);
+	margin-right: 2px;
+}

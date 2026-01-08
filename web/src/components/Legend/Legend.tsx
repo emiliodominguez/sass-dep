@@ -55,6 +55,13 @@ export function Legend() {
 					<LegendItem icon={<span className="line dotted line-import" />} label="@import" description={EDGE_DESCRIPTIONS["import"]} />
 				</ul>
 			</div>
+
+			<div className="legend-shortcuts">
+				<span className="shortcut-key">/</span> Search
+				<span className="shortcut-key">f</span> Fit view
+				<span className="shortcut-key">Esc</span> Clear
+				<span className="shortcut-key">Shift+Click</span> Path
+			</div>
 		</div>
 	);
 }

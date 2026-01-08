@@ -1,10 +1,11 @@
 import { useState, useCallback, useMemo, useRef } from "react";
 import { useGraphData } from "./hooks/useGraphData";
+import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { Graph, type GraphHandle } from "./components/Graph/Graph";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { DataLoader } from "./components/DataLoader/DataLoader";
 import { Legend } from "./components/Legend/Legend";
-import { Toolbar, ALL_FILTER_FLAGS } from "./components/Toolbar/Toolbar";
+import { Toolbar, ALL_FILTER_FLAGS, type ToolbarHandle } from "./components/Toolbar/Toolbar";
 import type { OutputNode, OutputEdge } from "./types/sass-dep";
 import "./App.css";
 
@@ -15,11 +16,36 @@ function App() {
 	const [searchQuery, setSearchQuery] = useState("");
 	const [activeFilters, setActiveFilters] = useState<string[]>(ALL_FILTER_FLAGS);
 	const graphRef = useRef<GraphHandle>(null);
+	const toolbarRef = useRef<ToolbarHandle>(null);
 
-	const handleNodeSelect = useCallback((nodeId: string, node: OutputNode) => {
-		setSelectedNode({ id: nodeId, node });
-		setSelectedEdge(null);
-	}, []);
+	// Path highlighting state
+	const [pathSource, setPathSource] = useState<string | null>(null);
+	const [pathTarget, setPathTarget] = useState<string | null>(null);
+
+	const handleNodeSelect = useCallback(
+		(nodeId: string, node: OutputNode, isShiftClick?: boolean) => {
+			if (isShiftClick) {
+				// Shift+click for path selection
+				if (!pathSource) {
+					setPathSource(nodeId);
+					setPathTarget(null);
+				} else if (pathSource === nodeId) {
+					// Clicking same node clears path
+					setPathSource(null);
+					setPathTarget(null);
+				} else {
+					setPathTarget(nodeId);
+				}
+			} else {
+				// Regular click clears path mode
+				setPathSource(null);
+				setPathTarget(null);
+			}
+			setSelectedNode({ id: nodeId, node });
+			setSelectedEdge(null);
+		},
+		[pathSource],
+	);
 
 	const handleEdgeSelect = useCallback((edge: OutputEdge) => {
 		setSelectedEdge(edge);
@@ -29,6 +55,8 @@ function App() {
 	const handleClearSelection = useCallback(() => {
 		setSelectedNode(null);
 		setSelectedEdge(null);
+		setPathSource(null);
+		setPathTarget(null);
 	}, []);
 
 	const handleFocusNode = useCallback((nodeId: string) => {
@@ -38,6 +66,18 @@ function App() {
 	const handleFitView = useCallback(() => {
 		graphRef.current?.fitView();
 	}, []);
+
+	const handleFocusSearch = useCallback(() => {
+		toolbarRef.current?.focusSearch();
+	}, []);
+
+	// Keyboard shortcuts
+	useKeyboardShortcuts({
+		onFocusSearch: handleFocusSearch,
+		onFitView: handleFitView,
+		onClearSelection: handleClearSelection,
+		onEscape: () => setSearchQuery(""),
+	});
 
 	const [isExporting, setIsExporting] = useState(false);
 
@@ -95,6 +135,7 @@ function App() {
 		<div className="app">
 			<div className="app-header">
 				<Toolbar
+					ref={toolbarRef}
 					searchQuery={searchQuery}
 					activeFilters={activeFilters}
 					nodeCount={nodeCount}
@@ -113,6 +154,8 @@ function App() {
 						data={data}
 						searchQuery={searchQuery}
 						activeFilters={activeFilters}
+						pathSource={pathSource}
+						pathTarget={pathTarget}
 						onNodeSelect={handleNodeSelect}
 						onEdgeSelect={handleEdgeSelect}
 						onClearSelection={handleClearSelection}

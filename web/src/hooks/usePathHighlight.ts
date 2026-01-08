@@ -1,0 +1,118 @@
+import { useMemo } from "react";
+import type { SassDepOutput } from "../types/sass-dep";
+
+interface PathHighlightResult {
+	pathNodeIds: Set<string>;
+	pathEdgeKeys: Set<string>;
+	hasPath: boolean;
+}
+
+/**
+ * Finds the shortest path between two nodes using BFS.
+ * Searches in both directions (dependencies and dependents).
+ */
+function findShortestPath(from: string, to: string, edges: SassDepOutput["edges"]): string[] | null {
+	if (from === to) return [from];
+
+	// Build adjacency lists for both directions
+	const forward = new Map<string, string[]>(); // from -> [to]
+	const backward = new Map<string, string[]>(); // to -> [from]
+
+	for (const edge of edges) {
+		if (!forward.has(edge.from)) forward.set(edge.from, []);
+		forward.get(edge.from)!.push(edge.to);
+
+		if (!backward.has(edge.to)) backward.set(edge.to, []);
+		backward.get(edge.to)!.push(edge.from);
+	}
+
+	// BFS from source
+	const visited = new Set<string>();
+	const parent = new Map<string, string | null>();
+	const queue: string[] = [from];
+	visited.add(from);
+	parent.set(from, null);
+
+	while (queue.length > 0) {
+		const current = queue.shift()!;
+
+		if (current === to) {
+			// Reconstruct path
+			const path: string[] = [];
+			let node: string | null = to;
+			while (node !== null) {
+				path.unshift(node);
+				node = parent.get(node) ?? null;
+			}
+			return path;
+		}
+
+		// Check both directions
+		const forwardNeighbors = forward.get(current) || [];
+		const backwardNeighbors = backward.get(current) || [];
+		const neighbors = [...forwardNeighbors, ...backwardNeighbors];
+
+		for (const neighbor of neighbors) {
+			if (!visited.has(neighbor)) {
+				visited.add(neighbor);
+				parent.set(neighbor, current);
+				queue.push(neighbor);
+			}
+		}
+	}
+
+	return null; // No path found
+}
+
+/**
+ * Creates edge keys for path edges (both directions since graph is directed).
+ */
+function createPathEdgeKeys(path: string[], edges: SassDepOutput["edges"]): Set<string> {
+	const keys = new Set<string>();
+
+	for (let i = 0; i < path.length - 1; i++) {
+		const a = path[i];
+		const b = path[i + 1];
+
+		// Check if edge exists in either direction
+		for (const edge of edges) {
+			if ((edge.from === a && edge.to === b) || (edge.from === b && edge.to === a)) {
+				keys.add(`${edge.from}->${edge.to}`);
+			}
+		}
+	}
+
+	return keys;
+}
+
+export function usePathHighlight(
+	sourceNodeId: string | null,
+	targetNodeId: string | null,
+	edges: SassDepOutput["edges"],
+): PathHighlightResult {
+	return useMemo(() => {
+		if (!sourceNodeId || !targetNodeId || sourceNodeId === targetNodeId) {
+			return {
+				pathNodeIds: new Set<string>(),
+				pathEdgeKeys: new Set<string>(),
+				hasPath: false,
+			};
+		}
+
+		const path = findShortestPath(sourceNodeId, targetNodeId, edges);
+
+		if (!path) {
+			return {
+				pathNodeIds: new Set<string>(),
+				pathEdgeKeys: new Set<string>(),
+				hasPath: false,
+			};
+		}
+
+		return {
+			pathNodeIds: new Set(path),
+			pathEdgeKeys: createPathEdgeKeys(path, edges),
+			hasPath: true,
+		};
+	}, [sourceNodeId, targetNodeId, edges]);
+}

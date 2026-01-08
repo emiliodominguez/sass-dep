@@ -1,7 +1,11 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, forwardRef, useImperativeHandle } from "react";
 import type { NodeFlag } from "../../types/sass-dep";
 import { useTheme } from "../../contexts/ThemeContext";
 import "./Toolbar.css";
+
+export interface ToolbarHandle {
+	focusSearch: () => void;
+}
 
 export const FILTER_OPTIONS: { flag: NodeFlag | "no_flags"; label: string }[] = [
 	{ flag: "entry_point", label: "Entry Points" },
@@ -27,9 +31,20 @@ interface ToolbarProps {
 	onFitView?: () => void;
 }
 
-export function Toolbar({ searchQuery, activeFilters, nodeCount, visibleCount, isExporting, onSearchChange, onFiltersChange, onExportPng, onFitView }: ToolbarProps) {
+export const Toolbar = forwardRef<ToolbarHandle, ToolbarProps>(function Toolbar(
+	{ searchQuery, activeFilters, nodeCount, visibleCount, isExporting, onSearchChange, onFiltersChange, onExportPng, onFitView },
+	ref,
+) {
 	const [isFilterOpen, setIsFilterOpen] = useState(false);
 	const filterRef = useRef<HTMLDivElement>(null);
+	const searchInputRef = useRef<HTMLInputElement>(null);
+
+	useImperativeHandle(ref, () => ({
+		focusSearch: () => {
+			searchInputRef.current?.focus();
+			searchInputRef.current?.select();
+		},
+	}));
 
 	// Close dropdown when clicking outside
 	useEffect(() => {
@@ -73,7 +88,7 @@ export function Toolbar({ searchQuery, activeFilters, nodeCount, visibleCount, i
 					<circle cx="11" cy="11" r="8" />
 					<line x1="21" y1="21" x2="16.65" y2="16.65" />
 				</svg>
-				<input type="text" placeholder="Search files..." value={searchQuery} onChange={(e) => onSearchChange(e.target.value)} className="search-input" />
+				<input ref={searchInputRef} type="text" placeholder="Search files... (press /)" value={searchQuery} onChange={(e) => onSearchChange(e.target.value)} className="search-input" />
 				{searchQuery && (
 					<button className="clear-button" onClick={handleClearSearch} title="Clear search">
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -168,7 +183,7 @@ export function Toolbar({ searchQuery, activeFilters, nodeCount, visibleCount, i
 			<ThemeToggle />
 		</div>
 	);
-}
+});
 
 function ThemeToggle() {
 	const { theme, toggleTheme } = useTheme();

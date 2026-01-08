@@ -4,16 +4,26 @@ import type { FileNodeData, FileNode as FileNodeType } from "./utils";
 import "./FileNode.css";
 
 interface FileNodeProps {
-	data: FileNodeData & { isFocused?: boolean };
+	data: FileNodeData & {
+		isFocused?: boolean;
+		isPathSource?: boolean;
+		isPathTarget?: boolean;
+		isInPath?: boolean;
+	};
 	selected: boolean;
 }
 
 function FileNodeComponent({ data, selected }: FileNodeProps) {
 	const isFocused = data.isFocused ?? false;
+	const isPathSource = data.isPathSource ?? false;
+	const isPathTarget = data.isPathTarget ?? false;
+	const isInPath = data.isInPath ?? false;
 	const flagClass = data.primaryFlag?.replace(/-/g, "_") || "";
 
+	const pathClass = isPathSource ? "path-source" : isPathTarget ? "path-target" : isInPath ? "in-path" : "";
+
 	return (
-		<div className={`file-node ${selected ? "selected" : ""} ${flagClass} ${isFocused ? "focused" : ""}`}>
+		<div className={`file-node ${selected ? "selected" : ""} ${flagClass} ${isFocused ? "focused" : ""} ${pathClass}`}>
 			<Handle type="target" position={Position.Left} />
 
 			<div className="file-node-content">
