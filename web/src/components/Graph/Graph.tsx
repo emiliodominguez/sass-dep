@@ -1,23 +1,26 @@
-import { useCallback, useMemo, useImperativeHandle, useState, useEffect, useRef } from "react";
-import { ReactFlow, Background, Controls, MiniMap, useNodesState, useEdgesState, useReactFlow, ReactFlowProvider, getNodesBounds } from "@xyflow/react";
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+
+import { Background, Controls, MiniMap, ReactFlow, ReactFlowProvider, getNodesBounds, useEdgesState, useNodesState, useReactFlow } from "@xyflow/react";
 import { toPng, toSvg } from "html-to-image";
 import "@xyflow/react/dist/style.css";
 
 import FileNode from "./FileNode";
 import GroupNode from "./GroupNode";
-import { transformToFlowElements, applyDagreLayout, transformToGroupedFlowElements, applyGroupedDagreLayout } from "./utils";
-import { getNodeColor } from "./styles";
+import { applyDagreLayout, applyGroupedDagreLayout, transformToFlowElements, transformToGroupedFlowElements } from "./utils";
 import { usePathHighlight } from "../../hooks/usePathHighlight";
-import type { SassDepOutput, OutputNode, OutputEdge } from "../../types/sass-dep";
-import type { AdvancedFilters } from "../Toolbar/Toolbar";
-import "./Graph.css";
+import { useTheme } from "../../contexts/useTheme";
+import type { OutputEdge, OutputNode, SassDepOutput } from "../../types/sass-dep";
+import type { AdvancedFilters } from "../Toolbar/constants";
+import "./Graph.scss";
 
+/** Custom node type registry for React Flow. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const nodeTypes: any = {
 	fileNode: FileNode,
 	group: GroupNode,
 };
 
+/** Imperative handle for controlling the Graph component. */
 export interface GraphHandle {
 	focusNode: (nodeId: string) => void;
 	exportPng: () => Promise<void>;
@@ -27,7 +30,7 @@ export interface GraphHandle {
 }
 
 interface GraphProps {
-	// Data props
+	ref?: React.Ref<GraphHandle>;
 	data: SassDepOutput;
 	searchQuery: string;
 	activeFilters: string[];
@@ -36,15 +39,18 @@ interface GraphProps {
 	pathTarget: string | null;
 	highlightCycles?: boolean;
 	groupByFolder?: boolean;
-	// Callbacks
 	onNodeSelect?: (nodeId: string, node: OutputNode, isShiftClick?: boolean) => void;
 	onEdgeSelect?: (edge: OutputEdge) => void;
 	onClearSelection?: () => void;
-	// Ref (React 19 style)
-	ref?: React.Ref<GraphHandle>;
 }
 
+/**
+ * Internal graph component that renders the React Flow visualization.
+ * @param props - Component props including data, filters, and callbacks
+ * @returns React Flow graph with nodes and edges
+ */
 function GraphInner({
+	ref,
 	data,
 	searchQuery,
 	activeFilters,
@@ -56,10 +62,15 @@ function GraphInner({
 	onNodeSelect,
 	onEdgeSelect,
 	onClearSelection,
-	ref,
 }: GraphProps) {
 	const { setCenter, getNode, fitView } = useReactFlow();
 	const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
+	const { theme } = useTheme();
+
+	// Track if this is the initial render
+	const isInitialRender = useRef(true);
+	// Track if we're currently focusing on a node (to skip auto-fit)
+	const isFocusingRef = useRef(false);
 
 	// Path highlighting
 	const { pathNodeIds, pathEdgeKeys, hasPath } = usePathHighlight(pathSource, pathTarget, data.edges);
@@ -101,14 +112,6 @@ function GraphInner({
 	const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes as any);
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges as any);
-
-	// Update nodes when grouping changes
-	useEffect(() => {
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		setNodes(initialNodes as any);
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		setEdges(initialEdges as any);
-	}, [initialNodes, initialEdges, setNodes, setEdges]);
 
 	// Filter nodes based on search and filters
 	const filteredNodes = useMemo(() => {
@@ -225,35 +228,6 @@ function GraphInner({
 			};
 		});
 	}, [edges, filteredNodes, hasPath, pathEdgeKeys, highlightCycles, cycleEdgeKeys]);
-
-	// Track if this is the initial render
-	const isInitialRender = useRef(true);
-	// Track if we're currently focusing on a node (to skip auto-fit)
-	const isFocusingRef = useRef(false);
-
-	// Auto-fit view when filters or search change
-	useEffect(() => {
-		// Skip the initial render (ReactFlow's fitView prop handles that)
-		if (isInitialRender.current) {
-			isInitialRender.current = false;
-			return;
-		}
-
-		// Skip if we're in the middle of focusing on a node
-		if (isFocusingRef.current) {
-			return;
-		}
-
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const visibleNodes = filteredNodes.filter((n: any) => !n.hidden);
-		if (visibleNodes.length > 0) {
-			// Small delay to let React Flow update the nodes first
-			const timeoutId = setTimeout(() => {
-				fitView({ nodes: visibleNodes, padding: 0.1, duration: 300 });
-			}, 50);
-			return () => clearTimeout(timeoutId);
-		}
-	}, [searchQuery, activeFilters, filteredNodes, fitView]);
 
 	// Export to PNG function
 	const exportPng = useCallback(async () => {
@@ -386,10 +360,73 @@ function GraphInner({
 	const handleFitView = useCallback(() => {
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const visibleNodes = filteredNodes.filter((n: any) => !n.hidden);
+
 		if (visibleNodes.length === 0) return;
 
 		fitView({ nodes: visibleNodes, padding: 0.1, duration: 300 });
 	}, [filteredNodes, fitView]);
+
+	const handleNodeClick = useCallback(
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		(event: React.MouseEvent, node: any) => {
+			const nodeData = data.nodes[node.id];
+
+			if (nodeData && onNodeSelect) {
+				onNodeSelect(node.id, nodeData, event.shiftKey);
+			}
+		},
+		[data.nodes, onNodeSelect],
+	);
+
+	const handleEdgeClick = useCallback(
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		(_event: React.MouseEvent, edge: any) => {
+			const edgeData = data.edges.find((e) => e.from === edge.source && e.to === edge.target);
+
+			if (edgeData && onEdgeSelect) {
+				onEdgeSelect(edgeData);
+			}
+		},
+		[data.edges, onEdgeSelect],
+	);
+
+	const handlePaneClick = useCallback(() => {
+		if (onClearSelection) {
+			onClearSelection();
+		}
+	}, [onClearSelection]);
+
+	// Update nodes when grouping changes
+	useEffect(() => {
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		setNodes(initialNodes as any);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		setEdges(initialEdges as any);
+	}, [initialNodes, initialEdges, setNodes, setEdges]);
+
+	// Auto-fit view when filters or search change
+	useEffect(() => {
+		// Skip the initial render (ReactFlow's fitView prop handles that)
+		if (isInitialRender.current) {
+			isInitialRender.current = false;
+			return;
+		}
+
+		// Skip if we're in the middle of focusing on a node
+		if (isFocusingRef.current) {
+			return;
+		}
+
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const visibleNodes = filteredNodes.filter((n: any) => !n.hidden);
+		if (visibleNodes.length > 0) {
+			// Small delay to let React Flow update the nodes first
+			const timeoutId = setTimeout(() => {
+				fitView({ nodes: visibleNodes, padding: 0.1, duration: 300 });
+			}, 50);
+			return () => clearTimeout(timeoutId);
+		}
+	}, [searchQuery, activeFilters, filteredNodes, fitView]);
 
 	// Expose focus, export, and fitView methods via ref
 	useImperativeHandle(
@@ -447,34 +484,6 @@ function GraphInner({
 		[nodes, getNode, setCenter, exportPng, exportSvg, exportJson, handleFitView],
 	);
 
-	const handleNodeClick = useCallback(
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		(event: React.MouseEvent, node: any) => {
-			const nodeData = data.nodes[node.id];
-			if (nodeData && onNodeSelect) {
-				onNodeSelect(node.id, nodeData, event.shiftKey);
-			}
-		},
-		[data.nodes, onNodeSelect],
-	);
-
-	const handleEdgeClick = useCallback(
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		(_event: React.MouseEvent, edge: any) => {
-			const edgeData = data.edges.find((e) => e.from === edge.source && e.to === edge.target);
-			if (edgeData && onEdgeSelect) {
-				onEdgeSelect(edgeData);
-			}
-		},
-		[data.edges, onEdgeSelect],
-	);
-
-	const handlePaneClick = useCallback(() => {
-		if (onClearSelection) {
-			onClearSelection();
-		}
-	}, [onClearSelection]);
-
 	return (
 		<div className="graph-wrapper">
 			<ReactFlow
@@ -486,6 +495,7 @@ function GraphInner({
 				onEdgeClick={handleEdgeClick}
 				onPaneClick={handlePaneClick}
 				nodeTypes={nodeTypes}
+				colorMode={theme}
 				fitView
 				minZoom={0.1}
 				maxZoom={2}
@@ -495,18 +505,17 @@ function GraphInner({
 			>
 				<Background color="var(--color-graph-dots)" gap={20} />
 				<Controls showInteractive={false} />
-				<MiniMap
-					// eslint-disable-next-line @typescript-eslint/no-explicit-any
-					nodeColor={(node: any) => getNodeColor(node.data?.primaryFlag)}
-					maskColor="var(--color-minimap-mask)"
-					style={{ background: "var(--color-minimap-bg)" }}
-				/>
+				<MiniMap />
 			</ReactFlow>
 		</div>
 	);
 }
 
-// Wrap with ReactFlowProvider so we can use hooks
+/**
+ * Graph component wrapper that provides React Flow context.
+ * @param props - Component props passed to GraphInner
+ * @returns Graph wrapped in ReactFlowProvider
+ */
 export function Graph(props: GraphProps) {
 	return (
 		<ReactFlowProvider>

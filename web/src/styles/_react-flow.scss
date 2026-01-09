@@ -1,15 +1,5 @@
-.graph-wrapper {
-	position: relative;
-	width: 100%;
-	height: 100%;
-	background-color: var(--color-bg-graph);
-	transition: background 0.2s ease;
-}
-
-/* React Flow customizations */
-.react-flow__background {
-	background-color: var(--color-graph-bg);
-}
+// React Flow custom styling
+// Uses React Flow's built-in theming via .dark class on the component
 
 .react-flow__controls {
 	box-shadow: var(--shadow-lg);
@@ -21,28 +11,19 @@
 }
 
 .react-flow__controls-button {
-	background-color: var(--color-bg-elevated);
-	border: none;
-	border-bottom: 1px solid var(--color-border);
 	width: 32px;
 	height: 32px;
-	color: var(--color-text-secondary);
 	transition: all 0.15s ease;
-}
 
-.react-flow__controls-button:hover {
-	background-color: var(--color-bg-tertiary);
-	color: var(--color-accent);
-}
+	&:last-child {
+		border-bottom: none;
+	}
 
-.react-flow__controls-button:last-child {
-	border-bottom: none;
-}
-
-.react-flow__controls-button svg {
-	fill: currentColor;
-	max-width: 14px;
-	max-height: 14px;
+	svg {
+		fill: currentColor;
+		max-width: 14px;
+		max-height: 14px;
+	}
 }
 
 .react-flow__minimap {
@@ -50,7 +31,6 @@
 	overflow: hidden;
 	border: 1px solid var(--color-border);
 	box-shadow: var(--shadow-lg);
-	background-color: var(--color-minimap-bg) !important;
 	backdrop-filter: blur(8px);
 	-webkit-backdrop-filter: blur(8px);
 }
@@ -60,10 +40,7 @@
 	transition: stroke-width 0.15s ease;
 }
 
-.react-flow__edge:hover .react-flow__edge-path {
-	stroke-width: 3;
-}
-
+.react-flow__edge:hover .react-flow__edge-path,
 .react-flow__edge.selected .react-flow__edge-path {
 	stroke-width: 3;
 }
@@ -72,53 +49,49 @@
 	display: none;
 }
 
-/* Ensure node wrapper respects border-radius */
 .react-flow__node {
 	border-radius: 12px;
+
+	> div {
+		border-radius: 12px;
+	}
 }
 
-.react-flow__node > div {
-	border-radius: 12px;
-}
-
-/* Elevate node when tooltip is active to escape stacking context */
+// Elevate node when tooltip is active
 .react-flow__node:has(.metric-badge:hover) {
 	z-index: 9999 !important;
 }
 
-/* Selection box styling */
+// Selection box styling
 .react-flow__selection {
 	background-color: var(--color-accent-light);
 	border: 1px solid var(--color-accent);
 }
 
-/* Pane styling */
+// Pane styling
 .react-flow__pane {
 	cursor: grab;
+
+	&:active {
+		cursor: grabbing;
+	}
 }
 
-.react-flow__pane:active {
-	cursor: grabbing;
-}
-
-/* Group node styling */
+// Group node styling
 .react-flow__node-group {
 	background-color: var(--color-group-bg) !important;
 	border: 2px dashed var(--color-group-border) !important;
 	border-radius: 12px !important;
 	overflow: visible !important;
+	z-index: 1 !important;
 }
 
-/* Ensure edges render below group nodes so group background dims them */
+// Ensure edges render below group nodes
 .react-flow__edges {
 	z-index: 0 !important;
 }
 
-.react-flow__node-group {
-	z-index: 1 !important;
-}
-
-/* File nodes inside groups need to be above the group background */
+// File nodes inside groups need to be above group background
 .react-flow__node-fileNode {
 	z-index: 2 !important;
 }

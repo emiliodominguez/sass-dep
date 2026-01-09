@@ -1,0 +1,271 @@
+// File node
+.file-node {
+	padding: 12px 16px;
+	border-radius: 12px;
+	border: 1px solid var(--color-flag-default-border);
+	min-width: 140px;
+	font-family: var(--font-family-sans);
+	transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+	box-shadow: var(--shadow-md);
+	background-color: var(--color-flag-default);
+	backdrop-filter: blur(8px);
+	-webkit-backdrop-filter: blur(8px);
+
+	&:hover {
+		box-shadow: var(--shadow-lg);
+		transform: translateY(-2px);
+		border-color: var(--color-border-hover);
+	}
+
+	// Elevate node when tooltip is active
+	&:has(.metric-badge:hover) {
+		z-index: 9999 !important;
+	}
+
+	&.selected {
+		border-color: var(--color-accent);
+		box-shadow: var(--shadow-glow), var(--shadow-md);
+	}
+
+	// Flag-based colors
+	&.entry-point {
+		background-color: var(--color-flag-entry-point);
+		border-color: var(--color-flag-entry-point-border);
+	}
+
+	&.orphan {
+		background-color: var(--color-flag-orphan);
+		border-color: var(--color-flag-orphan-border);
+	}
+
+	&.in-cycle {
+		background-color: var(--color-flag-in-cycle);
+		border-color: var(--color-flag-in-cycle-border);
+	}
+
+	&.leaf {
+		background-color: var(--color-flag-leaf);
+		border-color: var(--color-flag-leaf-border);
+	}
+
+	&.high-fan-in {
+		background-color: var(--color-flag-high-fan-in);
+		border-color: var(--color-flag-high-fan-in-border);
+	}
+
+	&.high-fan-out {
+		background-color: var(--color-flag-high-fan-out);
+		border-color: var(--color-flag-high-fan-out-border);
+	}
+
+	&.focused {
+		border-color: var(--color-accent);
+		box-shadow:
+			0 0 0 3px var(--color-accent-light),
+			var(--shadow-glow);
+		animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+	}
+
+	// Path highlighting
+	&.path-source {
+		border-color: var(--color-accent);
+		box-shadow:
+			0 0 0 3px var(--color-accent-light),
+			var(--shadow-glow);
+
+		&::before {
+			content: "START";
+			position: absolute;
+			top: -24px;
+			left: 50%;
+			transform: translateX(-50%);
+			font-size: 9px;
+			font-weight: 700;
+			color: var(--color-accent);
+			background-color: var(--color-accent-light);
+			padding: 2px 6px;
+			border-radius: 4px;
+			letter-spacing: 0.05em;
+		}
+	}
+
+	&.path-target {
+		border-color: #22c55e;
+		box-shadow:
+			0 0 0 3px rgba(34, 197, 94, 0.2),
+			0 0 20px rgba(34, 197, 94, 0.15);
+
+		&::before {
+			content: "END";
+			position: absolute;
+			top: -24px;
+			left: 50%;
+			transform: translateX(-50%);
+			font-size: 9px;
+			font-weight: 700;
+			color: #22c55e;
+			background-color: rgba(34, 197, 94, 0.15);
+			padding: 2px 6px;
+			border-radius: 4px;
+			letter-spacing: 0.05em;
+		}
+	}
+
+	&.in-path {
+		border-color: var(--color-accent);
+		box-shadow: 0 0 0 2px var(--color-accent-light);
+	}
+
+	&.cycle-highlight {
+		border-color: var(--color-flag-in-cycle-border);
+		box-shadow:
+			0 0 0 3px var(--color-flag-in-cycle),
+			0 0 20px var(--color-flag-in-cycle);
+		animation: cycle-pulse 1.5s ease-in-out infinite;
+	}
+
+	// Hide React Flow handles
+	:global(.react-flow__handle) {
+		opacity: 0;
+		pointer-events: none;
+	}
+}
+
+@keyframes pulse {
+	0%,
+	100% {
+		box-shadow:
+			0 0 0 3px var(--color-accent-light),
+			var(--shadow-glow);
+	}
+	50% {
+		box-shadow:
+			0 0 0 6px transparent,
+			0 0 30px rgba(96, 165, 250, 0.3);
+	}
+}
+
+@keyframes cycle-pulse {
+	0%,
+	100% {
+		box-shadow:
+			0 0 0 3px var(--color-flag-in-cycle),
+			0 0 20px var(--color-flag-in-cycle);
+	}
+	50% {
+		box-shadow:
+			0 0 0 5px var(--color-flag-in-cycle),
+			0 0 30px var(--color-flag-in-cycle);
+	}
+}
+
+.content {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.label {
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--color-text-primary);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	max-width: 160px;
+	letter-spacing: -0.01em;
+}
+
+.metrics {
+	display: flex;
+	gap: 12px;
+	font-size: 11px;
+	color: var(--color-text-secondary);
+	font-weight: 500;
+
+	svg {
+		opacity: 0.8;
+	}
+}
+
+.metric-badge {
+	position: relative;
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	padding: 2px 6px;
+	background-color: var(--color-bg-tertiary);
+	border-radius: 4px;
+	transition: background-color 0.15s ease;
+	cursor: help;
+
+	&:hover {
+		background-color: var(--color-border);
+		z-index: 9999;
+
+		.tooltip {
+			opacity: 1;
+			visibility: visible;
+		}
+	}
+}
+
+.tooltip {
+	position: absolute;
+	left: 50%;
+	bottom: calc(100% + 10px);
+	transform: translateX(-50%);
+	width: 200px;
+	padding: 10px 12px;
+	background-color: var(--color-bg-elevated);
+	border: 1px solid var(--color-border);
+	border-radius: 8px;
+	box-shadow: var(--shadow-lg);
+	font-size: 11px;
+	font-weight: 400;
+	line-height: 1.5;
+	color: var(--color-text-secondary);
+	opacity: 0;
+	visibility: hidden;
+	pointer-events: none;
+	transition:
+		opacity 0.15s ease,
+		visibility 0.15s ease;
+	z-index: 1000;
+	text-align: left;
+
+	strong {
+		display: block;
+		font-size: 12px;
+		font-weight: 600;
+		color: var(--color-text-primary);
+		margin-bottom: 4px;
+	}
+
+	p {
+		margin: 0;
+	}
+
+	// Arrow pointing down
+	&::after {
+		content: "";
+		position: absolute;
+		top: 100%;
+		left: 50%;
+		transform: translateX(-50%);
+		border: 6px solid transparent;
+		border-top-color: var(--color-border);
+	}
+
+	&::before {
+		content: "";
+		position: absolute;
+		top: 100%;
+		left: 50%;
+		transform: translateX(-50%);
+		margin-top: -1px;
+		border: 6px solid transparent;
+		border-top-color: var(--color-bg-elevated);
+		z-index: 1;
+	}
+}

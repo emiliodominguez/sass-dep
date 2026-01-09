@@ -1,7 +1,8 @@
-import type { Node, Edge, XYPosition } from "@xyflow/react";
+import type { Edge, Node, XYPosition } from "@xyflow/react";
 import Dagre from "@dagrejs/dagre";
-import type { SassDepOutput, NodeFlag, OutputNode } from "../../types/sass-dep";
-import { getNodeColor, getEdgeColor, getEdgeStyle } from "./styles";
+
+import type { NodeFlag, OutputNode, SassDepOutput } from "../../types/sass-dep";
+import { getEdgeColor, getEdgeStyle, getNodeColor } from "./styles";
 
 /** Group node data */
 export interface GroupNodeData extends Record<string, unknown> {

@@ -1,52 +1,58 @@
 import type { OutputEdge } from "../../types/sass-dep";
 import { EDGE_COLORS } from "../Graph/styles";
+import styles from "./Sidebar.module.scss";
 
 interface EdgeDetailsProps {
 	edge: OutputEdge;
 }
 
+/**
+ * Edge details panel showing connection info and directive type.
+ * @param props - Component props
+ * @returns Edge details view
+ */
 export function EdgeDetails({ edge }: EdgeDetailsProps) {
 	const directiveColor = EDGE_COLORS[edge.directive_type];
 
 	return (
-		<div className="sidebar-section">
+		<div className={styles["section"]}>
 			<h3>Edge Details</h3>
 
-			<div className="detail-group">
+			<div className={styles["detail-group"]}>
 				<label>From</label>
-				<p className="file-id">{edge.from}</p>
+				<p className={styles["file-id"]}>{edge.from}</p>
 			</div>
 
-			<div className="detail-group">
+			<div className={styles["detail-group"]}>
 				<label>To</label>
-				<p className="file-id">{edge.to}</p>
+				<p className={styles["file-id"]}>{edge.to}</p>
 			</div>
 
-			<div className="detail-group">
+			<div className={styles["detail-group"]}>
 				<label>Directive Type</label>
-				<span className="directive-badge" style={{ backgroundColor: directiveColor, color: "white" }}>
+				<span className={styles["directive-badge"]} style={{ backgroundColor: directiveColor, color: "white" }}>
 					@{edge.directive_type}
 				</span>
 			</div>
 
-			<div className="detail-group">
+			<div className={styles["detail-group"]}>
 				<label>Source Location</label>
-				<p className="location">
+				<p className={styles["location"]}>
 					Line {edge.location.line}, Column {edge.location.column}
 				</p>
 			</div>
 
 			{edge.namespace && (
-				<div className="detail-group">
+				<div className={styles["detail-group"]}>
 					<label>Namespace</label>
-					<code className="namespace">{edge.namespace}</code>
+					<code className={styles["namespace"]}>{edge.namespace}</code>
 				</div>
 			)}
 
 			{edge.configured && (
-				<div className="detail-group">
+				<div className={styles["detail-group"]}>
 					<label>Configuration</label>
-					<span className="configured-badge">with(...)</span>
+					<span className={styles["configured-badge"]}>with(...)</span>
 				</div>
 			)}
 		</div>

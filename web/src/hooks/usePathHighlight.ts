@@ -1,13 +1,24 @@
 import { useMemo } from "react";
+
 import type { SassDepOutput } from "../types/sass-dep";
 
+/** Result returned by the usePathHighlight hook. */
 interface PathHighlightResult {
+	/** Set of node IDs in the highlighted path. */
 	pathNodeIds: Set<string>;
+	/** Set of edge keys in the highlighted path (format: "source->target"). */
 	pathEdgeKeys: Set<string>;
+	/** Whether a valid path exists between source and target. */
 	hasPath: boolean;
 }
 
-/** Finds the shortest path between two nodes using BFS (bidirectional). */
+/**
+ * Finds the shortest path between two nodes using BFS.
+ * @param from - Source node ID
+ * @param to - Target node ID
+ * @param edges - All edges in the graph
+ * @returns Array of node IDs in the path, or null if no path exists
+ */
 function findShortestPath(from: string, to: string, edges: SassDepOutput["edges"]): string[] | null {
 	if (from === to) return [from];
 
@@ -57,7 +68,12 @@ function findShortestPath(from: string, to: string, edges: SassDepOutput["edges"
 	return null;
 }
 
-/** Creates edge keys for path edges (checks both directions). */
+/**
+ * Creates edge keys for path edges (checks both directions).
+ * @param path - Array of node IDs in the path
+ * @param edges - All edges in the graph
+ * @returns Set of edge keys in the path
+ */
 function createPathEdgeKeys(path: string[], edges: SassDepOutput["edges"]): Set<string> {
 	const keys = new Set<string>();
 
@@ -75,7 +91,13 @@ function createPathEdgeKeys(path: string[], edges: SassDepOutput["edges"]): Set<
 	return keys;
 }
 
-/** Computes path highlighting data between two selected nodes. */
+/**
+ * Hook for computing path highlighting data between two selected nodes.
+ * @param sourceNodeId - The source node ID, or null
+ * @param targetNodeId - The target node ID, or null
+ * @param edges - All edges in the graph
+ * @returns Path highlighting result with node IDs, edge keys, and hasPath flag
+ */
 export function usePathHighlight(sourceNodeId: string | null, targetNodeId: string | null, edges: SassDepOutput["edges"]): PathHighlightResult {
 	return useMemo(() => {
 		if (!sourceNodeId || !targetNodeId || sourceNodeId === targetNodeId) {

@@ -1,17 +1,16 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
+
+import { ThemeContext } from "./themeContext";
 
 type Theme = "light" | "dark";
 
-interface ThemeContextValue {
-	theme: Theme;
-	toggleTheme: () => void;
-	setTheme: (theme: Theme) => void;
-}
-
-const ThemeContext = createContext<ThemeContextValue | null>(null);
-
+/** localStorage key for persisting theme preference. */
 const THEME_STORAGE_KEY = "sass-dep-theme";
 
+/**
+ * Gets the initial theme from localStorage or system preference.
+ * @returns The initial theme to use
+ */
 function getInitialTheme(): Theme {
 	// Check localStorage first
 	if (typeof window !== "undefined") {
@@ -31,6 +30,12 @@ interface ThemeProviderProps {
 	children: ReactNode;
 }
 
+/**
+ * Provider component for theme context.
+ * Manages theme state, persistence, and system preference detection.
+ * @param props - Component props containing children
+ * @returns Provider wrapping children with theme context
+ */
 export function ThemeProvider({ children }: ThemeProviderProps) {
 	const [theme, setThemeState] = useState<Theme>(getInitialTheme);
 
@@ -43,15 +48,22 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
 	// Listen for system theme changes
 	useEffect(() => {
 		const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-		const handleChange = (e: MediaQueryListEvent) => {
+
+		/**
+		 * Handles changes in system theme preference.
+		 * @param e - Media query event
+		 */
+		function handleChange(e: MediaQueryListEvent): void {
 			// Only auto-switch if user hasn't set a preference
 			const stored = localStorage.getItem(THEME_STORAGE_KEY);
+
 			if (!stored) {
 				setThemeState(e.matches ? "dark" : "light");
 			}
-		};
+		}
 
 		mediaQuery.addEventListener("change", handleChange);
+
 		return () => mediaQuery.removeEventListener("change", handleChange);
 	}, []);
 
@@ -64,12 +76,4 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
 	}, []);
 
 	return <ThemeContext.Provider value={{ theme, toggleTheme, setTheme }}>{children}</ThemeContext.Provider>;
-}
-
-export function useTheme() {
-	const context = useContext(ThemeContext);
-	if (!context) {
-		throw new Error("useTheme must be used within a ThemeProvider");
-	}
-	return context;
 }

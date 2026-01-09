@@ -1,14 +1,20 @@
-import { useState, useCallback, useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
+
 import { useGraphData } from "./hooks/useGraphData";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { Graph, type GraphHandle } from "./components/Graph/Graph";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { DataLoader } from "./components/DataLoader/DataLoader";
 import { Legend } from "./components/Legend/Legend";
-import { Toolbar, ALL_FILTER_FLAGS, DEFAULT_ADVANCED_FILTERS, type ToolbarHandle, type AdvancedFilters } from "./components/Toolbar/Toolbar";
-import type { OutputNode, OutputEdge } from "./types/sass-dep";
-import "./App.css";
+import { Toolbar } from "./components/Toolbar/Toolbar";
+import { ALL_FILTER_FLAGS, type AdvancedFilters, DEFAULT_ADVANCED_FILTERS, type ToolbarHandle } from "./components/Toolbar/constants";
+import type { OutputEdge, OutputNode } from "./types/sass-dep";
+import styles from "./App.module.scss";
 
+/**
+ * Main application component.
+ * @returns App with graph visualization or data loader
+ */
 function App() {
 	const { data, isLoading, setData } = useGraphData();
 	const [selectedNode, setSelectedNode] = useState<{ id: string; node: OutputNode } | null>(null);
@@ -19,108 +25,19 @@ function App() {
 	const graphRef = useRef<GraphHandle>(null);
 	const toolbarRef = useRef<ToolbarHandle>(null);
 
-	// Path highlighting state
 	const [pathSource, setPathSource] = useState<string | null>(null);
 	const [pathTarget, setPathTarget] = useState<string | null>(null);
-
-	// Cycle highlighting state
 	const [highlightCycles, setHighlightCycles] = useState(false);
-
-	// Folder grouping state
 	const [groupByFolder, setGroupByFolder] = useState(false);
-
-	const handleNodeSelect = useCallback(
-		(nodeId: string, node: OutputNode, isShiftClick?: boolean) => {
-			if (isShiftClick) {
-				// Shift+click for path selection
-				if (!pathSource) {
-					setPathSource(nodeId);
-					setPathTarget(null);
-				} else if (pathSource === nodeId) {
-					// Clicking same node clears path
-					setPathSource(null);
-					setPathTarget(null);
-				} else {
-					setPathTarget(nodeId);
-				}
-			} else {
-				// Regular click clears path mode
-				setPathSource(null);
-				setPathTarget(null);
-			}
-			setSelectedNode({ id: nodeId, node });
-			setSelectedEdge(null);
-		},
-		[pathSource],
-	);
-
-	const handleEdgeSelect = useCallback((edge: OutputEdge) => {
-		setSelectedEdge(edge);
-		setSelectedNode(null);
-	}, []);
-
-	const handleClearSelection = useCallback(() => {
-		setSelectedNode(null);
-		setSelectedEdge(null);
-		setPathSource(null);
-		setPathTarget(null);
-	}, []);
-
-	const handleFocusNode = useCallback((nodeId: string) => {
-		graphRef.current?.focusNode(nodeId);
-	}, []);
-
-	const handleFitView = useCallback(() => {
-		graphRef.current?.fitView();
-	}, []);
-
-	const handleFocusSearch = useCallback(() => {
-		toolbarRef.current?.focusSearch();
-	}, []);
-
-	// Keyboard shortcuts
-	useKeyboardShortcuts({
-		onFocusSearch: handleFocusSearch,
-		onFitView: handleFitView,
-		onClearSelection: handleClearSelection,
-		onEscape: () => setSearchQuery(""),
-	});
-
 	const [isExporting, setIsExporting] = useState(false);
 
-	const handleExportPng = useCallback(async () => {
-		if (!graphRef.current) return;
-		setIsExporting(true);
-		try {
-			await graphRef.current.exportPng();
-		} finally {
-			setIsExporting(false);
-		}
-	}, []);
-
-	const handleExportSvg = useCallback(async () => {
-		if (!graphRef.current) return;
-		setIsExporting(true);
-		try {
-			await graphRef.current.exportSvg();
-		} finally {
-			setIsExporting(false);
-		}
-	}, []);
-
-	const handleExportJson = useCallback(() => {
-		if (!graphRef.current) return;
-		graphRef.current.exportJson();
-	}, []);
-
-	// Calculate visible node count for toolbar stats
 	const { nodeCount, visibleCount } = useMemo(() => {
 		if (!data) return { nodeCount: 0, visibleCount: 0 };
 
 		const nodes = Object.entries(data.nodes);
-		const nodeCount = nodes.length;
+		const totalCount = nodes.length;
 
-		const visibleCount = nodes.filter(([id, node]) => {
+		const visibleNodeCount = nodes.filter(([id, node]) => {
 			const matchesSearch = !searchQuery || id.toLowerCase().includes(searchQuery.toLowerCase()) || node.path.toLowerCase().includes(searchQuery.toLowerCase());
 
 			const matchesFilters =
@@ -132,7 +49,6 @@ function App() {
 					return node.flags.includes(filter as OutputNode["flags"][number]);
 				});
 
-			// Check advanced filters
 			const { minDepth, maxDepth, minFanIn, maxFanIn, minFanOut, maxFanOut } = advancedFilters;
 			const { depth, fan_in, fan_out } = node.metrics;
 
@@ -147,27 +63,137 @@ function App() {
 			return matchesSearch && matchesFilters && matchesAdvanced;
 		}).length;
 
-		return { nodeCount, visibleCount };
+		return { nodeCount: totalCount, visibleCount: visibleNodeCount };
 	}, [data, searchQuery, activeFilters, advancedFilters]);
 
-	// Show loading state
+	/**
+	 * Handles node selection, supporting shift-click for path highlighting.
+	 * @param nodeId - The selected node's ID
+	 * @param node - The selected node data
+	 * @param isShiftClick - Whether shift key was held during click
+	 */
+	function handleNodeSelect(nodeId: string, node: OutputNode, isShiftClick?: boolean) {
+		if (isShiftClick) {
+			if (!pathSource) {
+				setPathSource(nodeId);
+				setPathTarget(null);
+			} else if (pathSource === nodeId) {
+				setPathSource(null);
+				setPathTarget(null);
+			} else {
+				setPathTarget(nodeId);
+			}
+		} else {
+			setPathSource(null);
+			setPathTarget(null);
+		}
+
+		setSelectedNode({ id: nodeId, node });
+		setSelectedEdge(null);
+	}
+
+	/**
+	 * Handles edge selection.
+	 * @param edge - The selected edge data
+	 */
+	function handleEdgeSelect(edge: OutputEdge) {
+		setSelectedEdge(edge);
+		setSelectedNode(null);
+	}
+
+	/**
+	 * Clears the current selection (node, edge, and path).
+	 */
+	function handleClearSelection() {
+		setSelectedNode(null);
+		setSelectedEdge(null);
+		setPathSource(null);
+		setPathTarget(null);
+	}
+
+	/**
+	 * Focuses the graph view on a specific node.
+	 * @param nodeId - The node ID to focus on
+	 */
+	function handleFocusNode(nodeId: string) {
+		graphRef.current?.focusNode(nodeId);
+	}
+
+	/**
+	 * Fits the graph view to show all visible nodes.
+	 */
+	function handleFitView() {
+		graphRef.current?.fitView();
+	}
+
+	/**
+	 * Focuses the search input in the toolbar.
+	 */
+	function handleFocusSearch() {
+		toolbarRef.current?.focusSearch();
+	}
+
+	/**
+	 * Exports the current graph view as a PNG image.
+	 */
+	async function handleExportPng() {
+		if (!graphRef.current) return;
+
+		setIsExporting(true);
+
+		try {
+			await graphRef.current.exportPng();
+		} finally {
+			setIsExporting(false);
+		}
+	}
+
+	/**
+	 * Exports the current graph view as an SVG file.
+	 */
+	async function handleExportSvg() {
+		if (!graphRef.current) return;
+
+		setIsExporting(true);
+
+		try {
+			await graphRef.current.exportSvg();
+		} finally {
+			setIsExporting(false);
+		}
+	}
+
+	/**
+	 * Exports the visible subgraph as a JSON file.
+	 */
+	function handleExportJson() {
+		if (!graphRef.current) return;
+
+		graphRef.current.exportJson();
+	}
+
+	useKeyboardShortcuts({
+		onFocusSearch: handleFocusSearch,
+		onFitView: handleFitView,
+		onClearSelection: handleClearSelection,
+		onEscape: () => setSearchQuery(""),
+	});
+
 	if (isLoading) {
 		return (
-			<div className="app loading">
+			<div className={`${styles["app"]} ${styles["loading"]}`}>
 				<p>Loading...</p>
 			</div>
 		);
 	}
 
-	// Show data loader if no data
 	if (!data) {
 		return <DataLoader onDataLoaded={setData} />;
 	}
 
-	// Show graph visualization
 	return (
-		<div className="app">
-			<div className="app-header">
+		<div className={styles["app"]}>
+			<div className={styles["header"]}>
 				<Toolbar
 					ref={toolbarRef}
 					searchQuery={searchQuery}
@@ -193,8 +219,9 @@ function App() {
 					onToggleGroupByFolder={setGroupByFolder}
 				/>
 			</div>
-			<div className="app-body">
-				<main className="main-content">
+
+			<div className={styles["body"]}>
+				<main className={styles["main-content"]}>
 					<Graph
 						ref={graphRef}
 						data={data}
@@ -209,8 +236,10 @@ function App() {
 						onEdgeSelect={handleEdgeSelect}
 						onClearSelection={handleClearSelection}
 					/>
+
 					<Legend />
 				</main>
+
 				<Sidebar selectedNode={selectedNode} selectedEdge={selectedEdge} statistics={data.analysis.statistics} edges={data.edges} onFocusNode={handleFocusNode} />
 			</div>
 		</div>

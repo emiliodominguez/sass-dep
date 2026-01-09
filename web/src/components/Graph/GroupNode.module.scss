@@ -4,7 +4,7 @@
 	position: relative;
 }
 
-.group-node-label {
+.label {
 	position: absolute;
 	top: -32px;
 	left: 12px;
@@ -20,14 +20,14 @@
 	cursor: default;
 	transition: max-width 0.2s ease;
 	max-width: 280px;
+
+	&:hover {
+		max-width: 600px;
+		z-index: 100;
+	}
 }
 
-.group-node-label:hover {
-	max-width: 600px;
-	z-index: 100;
-}
-
-.group-node-path {
+.path {
 	font-size: 12px;
 	font-weight: 600;
 	color: var(--color-text-primary);
@@ -37,7 +37,7 @@
 	text-overflow: ellipsis;
 }
 
-.group-node-count {
+.count {
 	font-size: 10px;
 	font-weight: 500;
 	color: var(--color-text-tertiary);

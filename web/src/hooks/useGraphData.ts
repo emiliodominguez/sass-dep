@@ -1,18 +1,24 @@
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
+
 import type { SassDepOutput } from "../types/sass-dep";
 
+/** Return type for the useGraphData hook. */
 interface UseGraphDataReturn {
+	/** The loaded graph data, or null if not yet loaded. */
 	data: SassDepOutput | null;
+	/** Whether data is currently being loaded. */
 	isLoading: boolean;
+	/** Error message if loading failed, or null. */
 	error: string | null;
+	/** Function to manually set graph data (used for file uploads). */
 	setData: (data: SassDepOutput) => void;
 }
 
 /**
  * Hook for loading graph data from the server API or file upload.
- *
  * When served by sass-dep's embedded server, it automatically fetches
  * from /api/data. Otherwise, it waits for file upload.
+ * @returns Object with data, loading state, error, and setData function
  */
 export function useGraphData(): UseGraphDataReturn {
 	const [data, setData] = useState<SassDepOutput | null>(null);
@@ -21,7 +27,10 @@ export function useGraphData(): UseGraphDataReturn {
 
 	// Try to fetch from API on mount (for --web mode)
 	useEffect(() => {
-		const fetchFromApi = async () => {
+		/**
+		 * Fetches graph data from the /api/data endpoint.
+		 */
+		async function fetchFromApi(): Promise<void> {
 			try {
 				const response = await fetch("/api/data");
 
@@ -42,7 +51,7 @@ export function useGraphData(): UseGraphDataReturn {
 			} finally {
 				setIsLoading(false);
 			}
-		};
+		}
 
 		fetchFromApi();
 	}, []);

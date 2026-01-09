@@ -7,20 +7,20 @@
 	background-image: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
 }
 
-.loader-content {
+.content {
 	text-align: center;
 	max-width: 500px;
 	padding: 40px;
+
+	h1 {
+		color: white;
+		font-size: 32px;
+		margin: 0 0 8px 0;
+		font-weight: 700;
+	}
 }
 
-.loader-content h1 {
-	color: white;
-	font-size: 32px;
-	margin: 0 0 8px 0;
-	font-weight: 700;
-}
-
-.loader-content .description {
+.description {
 	color: rgba(255, 255, 255, 0.8);
 	font-size: 16px;
 	margin: 0 0 32px 0;
@@ -32,12 +32,12 @@
 	padding: 48px 32px;
 	border: 3px dashed #ccc;
 	transition: all 0.2s ease;
-}
 
-.drop-zone.dragging {
-	border-color: #667eea;
-	background-color: rgba(255, 255, 255, 1);
-	transform: scale(1.02);
+	&.dragging {
+		border-color: #667eea;
+		background-color: rgba(255, 255, 255, 1);
+		transform: scale(1.02);
+	}
 }
 
 .drop-text {
@@ -66,10 +66,10 @@
 	font-weight: 600;
 	cursor: pointer;
 	transition: background 0.2s ease;
-}
 
-.file-input-label:hover {
-	background-color: #5a6fd6;
+	&:hover {
+		background-color: #5a6fd6;
+	}
 }
 
 .error {
@@ -87,34 +87,34 @@
 	background-color: rgba(255, 255, 255, 0.1);
 	padding: 20px;
 	border-radius: 8px;
+
+	h3 {
+		color: white;
+		font-size: 14px;
+		margin: 0 0 12px 0;
+		font-weight: 600;
+	}
+
+	code {
+		display: block;
+		background-color: rgba(0, 0, 0, 0.3);
+		color: #a5d6a7;
+		padding: 12px 16px;
+		border-radius: 6px;
+		font-size: 13px;
+		font-family: var(--font-family-mono);
+		overflow-x: auto;
+	}
 }
 
-.instructions h3 {
-	color: white;
-	font-size: 14px;
-	margin: 0 0 12px 0;
-	font-weight: 600;
-}
-
-.instructions code {
-	display: block;
-	background-color: rgba(0, 0, 0, 0.3);
-	color: #a5d6a7;
-	padding: 12px 16px;
-	border-radius: 6px;
-	font-size: 13px;
-	font-family: "SF Mono", Monaco, "Courier New", monospace;
-	overflow-x: auto;
-}
-
-.instructions .tip {
+.tip {
 	color: rgba(255, 255, 255, 0.7);
 	font-size: 13px;
 	margin: 12px 0 0 0;
-}
 
-.instructions .tip code {
-	display: inline;
-	padding: 2px 6px;
-	background-color: rgba(0, 0, 0, 0.2);
+	code {
+		display: inline;
+		padding: 2px 6px;
+		background-color: rgba(0, 0, 0, 0.2);
+	}
 }

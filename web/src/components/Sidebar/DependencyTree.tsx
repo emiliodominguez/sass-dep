@@ -1,13 +1,13 @@
-import { useState, useCallback, useMemo } from "react";
+import { useMemo, useState } from "react";
+
 import type { OutputEdge } from "../../types/sass-dep";
+import styles from "./Sidebar.module.scss";
 
 interface DependencyTreeProps {
-	// Data props
 	rootNodeId: string;
 	edges: OutputEdge[];
 	direction: "dependents" | "dependencies";
 	maxDepth?: number;
-	// Callbacks
 	onFocusNode?: (nodeId: string) => void;
 }
 
@@ -17,6 +17,16 @@ interface TreeNodeData {
 	depth: number;
 }
 
+/**
+ * Recursively builds a tree structure from edges.
+ * @param rootId - Root node ID
+ * @param edges - All edges
+ * @param direction - Tree direction
+ * @param maxDepth - Maximum tree depth
+ * @param visited - Set of visited nodes
+ * @param currentDepth - Current depth level
+ * @returns Tree node data
+ */
 function buildTree(
 	rootId: string,
 	edges: OutputEdge[],
@@ -37,7 +47,6 @@ function buildTree(
 
 	visited.add(rootId);
 
-	// Find connected nodes based on direction
 	const connectedIds = direction === "dependents" ? edges.filter((e) => e.to === rootId).map((e) => e.from) : edges.filter((e) => e.from === rootId).map((e) => e.to);
 
 	for (const childId of connectedIds) {
@@ -49,19 +58,35 @@ function buildTree(
 	return node;
 }
 
-function TreeNode({ node, onFocusNode, isRoot = false }: { node: TreeNodeData; onFocusNode?: (nodeId: string) => void; isRoot?: boolean }) {
+interface TreeNodeProps {
+	node: TreeNodeData;
+	onFocusNode?: (nodeId: string) => void;
+	isRoot?: boolean;
+}
+
+/**
+ * Renders a single node in the dependency tree.
+ * @param props - Component props
+ * @returns Tree node element
+ */
+function TreeNode({ node, onFocusNode, isRoot = false }: TreeNodeProps) {
 	const [isExpanded, setIsExpanded] = useState(node.depth < 2);
 	const hasChildren = node.children.length > 0;
 
-	const toggleExpand = useCallback(() => {
+	/**
+	 * Toggles the expanded/collapsed state of the tree node.
+	 */
+	function toggleExpand() {
 		setIsExpanded((prev) => !prev);
-	}, []);
+	}
+
+	const rootClass = isRoot ? styles["tree-root"] : "";
 
 	return (
-		<div className={`tree-node ${isRoot ? "tree-root" : ""}`}>
-			<div className="tree-node-row">
+		<div className={`${styles["tree-node"]} ${rootClass}`}>
+			<div className={styles["tree-node-row"]}>
 				{hasChildren ? (
-					<button className="tree-toggle" onClick={toggleExpand} aria-label={isExpanded ? "Collapse" : "Expand"}>
+					<button className={styles["tree-toggle"]} onClick={toggleExpand} aria-label={isExpanded ? "Collapse" : "Expand"}>
 						<svg
 							width="10"
 							height="10"
@@ -75,19 +100,19 @@ function TreeNode({ node, onFocusNode, isRoot = false }: { node: TreeNodeData; o
 						</svg>
 					</button>
 				) : (
-					<span className="tree-spacer" />
+					<span className={styles["tree-spacer"]} />
 				)}
-				<button className="tree-node-label" onClick={() => onFocusNode?.(node.id)} title={`Focus on ${node.id}`}>
+				<button className={styles["tree-node-label"]} onClick={() => onFocusNode?.(node.id)} title={`Focus on ${node.id}`}>
 					<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
 						<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
 						<polyline points="14 2 14 8 20 8" />
 					</svg>
 					{node.id}
 				</button>
-				{hasChildren && <span className="tree-count">({node.children.length})</span>}
+				{hasChildren && <span className={styles["tree-count"]}>({node.children.length})</span>}
 			</div>
 			{hasChildren && isExpanded && (
-				<div className="tree-children">
+				<div className={styles["tree-children"]}>
 					{node.children.map((child) => (
 						<TreeNode key={child.id} node={child} onFocusNode={onFocusNode} />
 					))}
@@ -97,10 +122,14 @@ function TreeNode({ node, onFocusNode, isRoot = false }: { node: TreeNodeData; o
 	);
 }
 
+/**
+ * Dependency tree visualization showing transitive relationships.
+ * @param props - Component props
+ * @returns Expandable tree view or null if empty
+ */
 export function DependencyTree({ rootNodeId, edges, direction, maxDepth = 4, onFocusNode }: DependencyTreeProps) {
 	const tree = useMemo(() => buildTree(rootNodeId, edges, direction, maxDepth), [rootNodeId, edges, direction, maxDepth]);
 
-	// Don't render if root has no children
 	if (tree.children.length === 0) {
 		return null;
 	}
@@ -109,13 +138,13 @@ export function DependencyTree({ rootNodeId, edges, direction, maxDepth = 4, onF
 	const description = direction === "dependents" ? "Files that depend on this file (up to 4 levels)" : "Files this file depends on (up to 4 levels)";
 
 	return (
-		<div className="detail-group">
+		<div className={styles["detail-group"]}>
 			<label>
 				{title}
-				<span className="label-count">{tree.children.length}</span>
+				<span className={styles["label-count"]}>{tree.children.length}</span>
 			</label>
-			<p className="tree-description">{description}</p>
-			<div className="dependency-tree">
+			<p className={styles["tree-description"]}>{description}</p>
+			<div className={styles["dependency-tree"]}>
 				{tree.children.map((child) => (
 					<TreeNode key={child.id} node={child} onFocusNode={onFocusNode} />
 				))}

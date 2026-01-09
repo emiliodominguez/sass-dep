@@ -1,93 +1,46 @@
-* {
-	margin: 0;
-	padding: 0;
-	box-sizing: border-box;
+// Typography
+:root {
+	--font-family-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+	--font-family-mono: "SF Mono", Monaco, "Cascadia Code", "Fira Code", Consolas, monospace;
 }
 
-html,
-body,
-#root {
-	height: 100%;
-	width: 100%;
-}
-
-body {
-	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
-	background-color: var(--color-bg-primary);
-	color: var(--color-text-primary);
-	transition:
-		background-color 0.2s ease,
-		color 0.2s ease;
-}
-
-/* Custom scrollbars */
-::-webkit-scrollbar {
-	width: 8px;
-	height: 8px;
-}
-
-::-webkit-scrollbar-track {
-	background: var(--color-bg-secondary);
-	border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb {
-	background: var(--color-border-hover);
-	border-radius: 4px;
-	transition: background 0.2s ease;
-}
-
-::-webkit-scrollbar-thumb:hover {
-	background: var(--color-text-tertiary);
-}
-
-::-webkit-scrollbar-corner {
-	background: var(--color-bg-secondary);
-}
-
-/* Firefox scrollbar */
-* {
-	scrollbar-width: thin;
-	scrollbar-color: var(--color-border-hover) var(--color-bg-secondary);
-}
-
-/* Light theme (default) */
+// Light theme (default)
 :root,
 [data-theme="light"] {
-	/* Background colors */
+	// Background colors
 	--color-bg-primary: #ffffff;
 	--color-bg-secondary: #f8fafc;
 	--color-bg-tertiary: #f1f5f9;
 	--color-bg-graph: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
 	--color-bg-elevated: #ffffff;
 
-	/* Text colors */
+	// Text colors
 	--color-text-primary: #1e293b;
 	--color-text-secondary: #64748b;
 	--color-text-tertiary: #94a3b8;
 	--color-text-muted: #cbd5e1;
 
-	/* Border colors */
+	// Border colors
 	--color-border: #e2e8f0;
 	--color-border-hover: #cbd5e1;
 	--color-border-focus: #3b82f6;
 
-	/* Accent colors */
+	// Accent colors
 	--color-accent: #3b82f6;
 	--color-accent-hover: #2563eb;
 	--color-accent-light: #eff6ff;
 
-	/* Graph background */
+	// Graph background
 	--color-graph-bg: #f8fafc;
 	--color-graph-dots: #e2e8f0;
 
-	/* Node colors */
+	// Node colors
 	--color-node-bg: #ffffff;
 	--color-node-border: rgba(0, 0, 0, 0.08);
 	--color-node-shadow: rgba(0, 0, 0, 0.08);
 	--color-node-shadow-hover: rgba(0, 0, 0, 0.12);
 
-	/* Node flag colors - light theme */
+	// Node flag colors
 	--color-flag-entry-point: #dcfce7;
 	--color-flag-entry-point-border: #22c55e;
 	--color-flag-orphan: #fee2e2;
@@ -103,63 +56,63 @@ body {
 	--color-flag-default: #ffffff;
 	--color-flag-default-border: #e2e8f0;
 
-	/* Minimap */
+	// Minimap
 	--color-minimap-bg: #f8fafc;
 	--color-minimap-mask: rgba(0, 0, 0, 0.1);
 
-	/* Edge colors */
+	// Edge colors
 	--color-edge-use: #3b82f6;
 	--color-edge-forward: #22c55e;
 	--color-edge-import: #f97316;
 
-	/* Group node colors */
+	// Group node colors
 	--color-group-bg: rgba(248, 250, 252, 0.92);
 	--color-group-border: rgba(59, 130, 246, 0.35);
 	--color-group-label: #64748b;
 
-	/* Shadows */
+	// Shadows
 	--shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
 	--shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
 	--shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
 	--shadow-glow: 0 0 20px rgba(59, 130, 246, 0.15);
 }
 
-/* Dark theme */
+// Dark theme
 [data-theme="dark"] {
-	/* Background colors */
+	// Background colors
 	--color-bg-primary: #0a0f1a;
 	--color-bg-secondary: #111827;
 	--color-bg-tertiary: #1f2937;
 	--color-bg-graph: linear-gradient(135deg, #0a0f1a 0%, #111827 100%);
 	--color-bg-elevated: #1f2937;
 
-	/* Text colors */
+	// Text colors
 	--color-text-primary: #f9fafb;
 	--color-text-secondary: #d1d5db;
 	--color-text-tertiary: #9ca3af;
 	--color-text-muted: #6b7280;
 
-	/* Border colors */
+	// Border colors
 	--color-border: #374151;
 	--color-border-hover: #4b5563;
 	--color-border-focus: #60a5fa;
 
-	/* Accent colors */
+	// Accent colors
 	--color-accent: #60a5fa;
 	--color-accent-hover: #93c5fd;
 	--color-accent-light: rgba(96, 165, 250, 0.15);
 
-	/* Graph background */
+	// Graph background
 	--color-graph-bg: #0a0f1a;
 	--color-graph-dots: #1f2937;
 
-	/* Node colors */
+	// Node colors
 	--color-node-bg: #1f2937;
 	--color-node-border: rgba(255, 255, 255, 0.08);
 	--color-node-shadow: rgba(0, 0, 0, 0.4);
 	--color-node-shadow-hover: rgba(0, 0, 0, 0.5);
 
-	/* Node flag colors - dark theme with better contrast */
+	// Node flag colors
 	--color-flag-entry-point: #166534;
 	--color-flag-entry-point-border: #4ade80;
 	--color-flag-orphan: #991b1b;
@@ -175,21 +128,21 @@ body {
 	--color-flag-default: #1f2937;
 	--color-flag-default-border: #4b5563;
 
-	/* Minimap */
+	// Minimap
 	--color-minimap-bg: #111827;
 	--color-minimap-mask: rgba(0, 0, 0, 0.5);
 
-	/* Edge colors - brighter for dark mode */
+	// Edge colors
 	--color-edge-use: #60a5fa;
 	--color-edge-forward: #4ade80;
 	--color-edge-import: #fb923c;
 
-	/* Group node colors */
+	// Group node colors
 	--color-group-bg: rgba(17, 24, 39, 0.85);
 	--color-group-border: rgba(96, 165, 250, 0.45);
 	--color-group-label: #9ca3af;
 
-	/* Shadows */
+	// Shadows
 	--shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
 	--shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
 	--shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -4px rgba(0, 0, 0, 0.4);

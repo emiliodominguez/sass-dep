@@ -4,15 +4,15 @@ function getCSSVariable(name: string): string {
 	return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
-/** Node flag colors - these are fallbacks, actual colors come from CSS variables */
-export const FLAG_COLORS = {
-	entry_point: "#22c55e",
-	orphan: "#f87171",
-	in_cycle: "#fbbf24",
-	leaf: "#94a3b8",
-	high_fan_in: "#60a5fa",
-	high_fan_out: "#c084fc",
-	default: "#f1f5f9",
+/** Node flag colors - fallbacks when CSS variables aren't available */
+const FLAG_COLORS = {
+	entry_point: "#dcfce7",
+	orphan: "#fee2e2",
+	in_cycle: "#fef3c7",
+	leaf: "#f1f5f9",
+	high_fan_in: "#dbeafe",
+	high_fan_out: "#f3e8ff",
+	default: "#ffffff",
 } as const;
 
 /** Edge colors */
@@ -22,20 +22,17 @@ export const EDGE_COLORS = {
 	import: "#f97316",
 } as const;
 
-/** Get node background color based on primary flag - returns CSS variable or fallback */
+/** Get node background color based on primary flag */
 export function getNodeColor(primaryFlag: string | null): string {
-	// Try to get from CSS variable first
 	const varName = primaryFlag ? `--color-flag-${primaryFlag.replace(/_/g, "-")}` : "--color-flag-default";
-
 	const cssValue = getCSSVariable(varName);
 	if (cssValue) return cssValue;
 
-	// Fallback to hardcoded values
 	if (!primaryFlag) return FLAG_COLORS.default;
 	return FLAG_COLORS[primaryFlag as keyof typeof FLAG_COLORS] || FLAG_COLORS.default;
 }
 
-/** Get edge color based on directive type - returns CSS variable or fallback */
+/** Get edge color based on directive type */
 export function getEdgeColor(directiveType: string): string {
 	const varName = `--color-edge-${directiveType}`;
 	const cssValue = getCSSVariable(varName);
