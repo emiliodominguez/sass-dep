@@ -82,6 +82,8 @@ sass-dep analyze [OPTIONS] <ENTRY_POINTS>...
 | `--output <FILE>`   | `-o`  | Output file (default: stdout)                 |
 | `--format <FORMAT>` |       | Output format: `json` (default)               |
 | `--include-orphans` |       | Include files not reachable from entry points |
+| `--web`             |       | Start interactive web visualization server    |
+| `--port <PORT>`     |       | Port for web server (default: 3000)           |
 
 **Examples:**
 
@@ -97,6 +99,12 @@ sass-dep analyze -I node_modules -I vendor src/main.scss
 
 # Output to file
 sass-dep analyze src/main.scss -o analysis.json
+
+# Start web visualizer
+sass-dep analyze src/main.scss --web
+
+# Web visualizer on custom port
+sass-dep analyze src/main.scss --web --port 8080
 ```
 
 #### `check`
@@ -256,9 +264,23 @@ high_fan_out = 10
 
 ## Web Visualizer
 
-The project includes an interactive web-based visualizer for exploring dependency graphs. Located in the `web/` directory, it's a React application built with Vite and React Flow.
+The project includes an interactive web-based visualizer for exploring dependency graphs. It can be launched directly from the CLI or run standalone from the `web/` directory.
 
 ### Running the Visualizer
+
+**Option 1: Integrated with CLI (recommended)**
+
+```bash
+# Analyze and launch visualizer in one command
+sass-dep analyze src/main.scss --web
+
+# Custom port
+sass-dep analyze src/main.scss --web --port 8080
+```
+
+The browser will open automatically at `http://localhost:3000` with your analysis data loaded.
+
+**Option 2: Standalone Development**
 
 ```bash
 cd web
@@ -276,10 +298,11 @@ Open `http://localhost:5173` and load your JSON analysis file (drag & drop or fi
 -   Click nodes to view details in sidebar
 -   Shift+click two nodes to highlight the path between them
 -   Use search (`/`) to filter nodes by name or path
+-   Focus on any node from the sidebar dependency tree
 
 **Filtering & Search**
 
--   Filter by node flags (entry point, leaf, orphan, in cycle, high fan-in/out)
+-   Filter by node flags (entry point, leaf, orphan, in cycle, high fan-in/out, no flags)
 -   Advanced filtering by depth, fan-in, and fan-out ranges
 -   Real-time node count showing visible/total
 
@@ -293,6 +316,7 @@ Open `http://localhost:5173` and load your JSON analysis file (drag & drop or fi
 -   View direct dependents (files that import selected file)
 -   View direct dependencies (files imported by selected file)
 -   Expandable dependency trees showing transitive relationships
+-   Click any file in the tree to focus and select it
 
 **Export Options**
 
@@ -305,21 +329,29 @@ Open `http://localhost:5173` and load your JSON analysis file (drag & drop or fi
 -   Toggle folder grouping to organize files by directory
 -   Visual containers show folder path and file count
 -   Group backgrounds dim edges for clearer visualization
--   Hover labels to expand and see full folder paths
+
+**UI Features**
+
+-   Light/Dark theme toggle with system preference detection
+-   Resizable sidebar (drag left edge) with persistent width
+-   Custom styled scrollbars
+-   Minimap for navigation in large graphs
 
 **Keyboard Shortcuts**
-| Key | Action |
-|-----|--------|
-| `/` | Focus search input |
-| `f` | Fit graph to view |
-| `Esc` | Clear search/selection |
-| `Shift+Click` | Select path endpoints |
+
+| Key           | Action                 |
+| ------------- | ---------------------- |
+| `/`           | Focus search input     |
+| `f`           | Fit graph to view      |
+| `Esc`         | Clear search/selection |
+| `Shift+Click` | Select path endpoints  |
 
 ### Visualizer Tech Stack
 
--   React 18 with TypeScript
+-   React 19 with TypeScript 5.9
 -   React Flow (@xyflow/react) for graph rendering
--   Vite for development and building
+-   Vite 7 for development and building
+-   ESLint 9 with flat config
 -   html-to-image for PNG/SVG export
 
 ## Non-Goals
