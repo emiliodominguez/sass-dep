@@ -138,3 +138,15 @@ To ensure identical output across runs:
 ## Related
 
 - [004-graph-representation.md](004-graph-representation.md) - Internal representation
+
+## Update: schema 1.1.0 (v0.2.0)
+
+Additive changes, plus one representational fix:
+
+- `metrics.depth` is `null` for unreachable files. It was `usize::MAX`, which is not representable in JavaScript and forced the visualizer to special-case it.
+- New: `metrics.transitive_dependents`, `metadata.entry_points`, `analysis.unresolved`, and the statistics `cycle_count`, `unresolved_imports`, `import_directives`.
+- Cycles are ordered closed paths instead of unordered SCC member lists.
+- Nodes are sorted by ID and edges by `(from, to)` for diff-friendly output.
+- A JSON Schema is published at `schema/v1.1.0.json`.
+
+`OutputSchema::from_json` reads any 1.x document and normalizes legacy depths, so `export` and the visualizer keep working with 1.0.0 files.

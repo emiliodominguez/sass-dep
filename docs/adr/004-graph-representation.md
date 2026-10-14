@@ -68,7 +68,7 @@ pub struct DependencyEdge {
 pub struct DependencyGraph {
     graph: DiGraph<FileNode, DependencyEdge>,
     node_index: IndexMap<String, NodeId>,
-    entry_points: HashSet<String>,
+    entry_points: IndexSet<String>,
     cycles: Vec<Vec<String>>,
 }
 ```
@@ -139,3 +139,10 @@ The representation supports:
 
 - [002-path-resolution.md](002-path-resolution.md) - Provides node paths
 - [003-json-schema-design.md](003-json-schema-design.md) - Serialization target
+
+## Update: construction and analysis (v0.2.0)
+
+- **Construction** is a level-synchronous parallel BFS: each frontier is read, parsed and resolved with `rayon`, then merged sequentially in frontier order. A per-node `scheduled` bit guarantees each file is parsed exactly once. The previous recursive DFS used a heuristic "already processed" check that re-parsed files on every incoming edge (exponential on diamond-shaped graphs) and recursed forever on cycles that did not include an entry point.
+- **Edge iteration** reads endpoint IDs from node weights (O(1)) instead of scanning `node_index` (O(N) per endpoint).
+- **Analysis** computes Tarjan SCCs once and reuses them for cycle reporting and for transitive metrics. Transitive dependencies/dependents are computed by dynamic programming over the SCC condensation with word-packed bitsets; the bitset matrix is processed in node chunks under a 64 MiB budget, so memory stays bounded on very large graphs.
+- **Unresolved imports** are recorded on the graph instead of printed from library code.

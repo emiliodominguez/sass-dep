@@ -16,15 +16,13 @@ Implement Sass-compliant path resolution following the official specification.
 
 For `@use "foo"` from `/project/src/main.scss`:
 
-1. `/project/src/foo.scss`
-2. `/project/src/foo.sass`
-3. `/project/src/_foo.scss`
-4. `/project/src/_foo.sass`
-5. `/project/src/foo/index.scss`
-6. `/project/src/foo/_index.scss`
-7. `/project/src/foo/index.sass`
-8. `/project/src/foo/_index.sass`
-9. Repeat for each configured load path
+1. `/project/src/foo.scss`, `/project/src/_foo.scss`
+2. `/project/src/foo.sass`, `/project/src/_foo.sass`
+3. `/project/src/foo.css`, `/project/src/_foo.css` (`@use`/`@forward` only)
+4. `/project/src/foo/index.*`, `/project/src/foo/_index.*` (same extension order)
+5. Repeat for each configured load path
+
+`@import` first tries import-only files (`foo.import.scss`, `_foo.import.scss`) and never loads `.css`. A target with an explicit extension (`"foo.scss"`) only matches `foo.scss` / `_foo.scss`. Webpack-style `"~pkg/path"` is looked up in the load paths, then in `node_modules` walking up from the importing file. `sass:` and `pkg:` URLs (and any other URL scheme) are treated as external and skipped.
 
 ## Key Behaviors
 
@@ -97,3 +95,9 @@ impl Resolver {
 
 - [001-parser-strategy.md](001-parser-strategy.md) - Provides directive paths
 - [004-graph-representation.md](004-graph-representation.md) - Uses resolved paths
+
+## Update: cached directory listings (v0.2.0)
+
+Resolution originally issued one `stat` per candidate (up to 8 per directory searched) and a `realpath` per resolved import. The resolver now caches, per directory, a listing of files and sub-directories plus the directory's canonical path (`RwLock<HashMap<PathBuf, Arc<DirListing>>>`, shared across the parallel builder threads). Candidate checks become hash lookups and a resolved path is `canonical_dir.join(name)`; only symlinked files still pay for a `realpath`. Paths are canonicalized with `dunce` so Windows does not produce `\\?\` verbatim paths, and targets are split on `/` explicitly.
+
+Load paths given on the CLI or in the config are resolved against `--root`.
