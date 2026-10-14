@@ -5,4 +5,6 @@
 
 mod commands;
 
-pub use commands::{Cli, Commands, ExportFormat, OutputFormat};
+pub use commands::{
+    CheckFormat, Cli, Commands, ExportFormat, GraphArgs, OutputFormat, ReportFormat,
+};

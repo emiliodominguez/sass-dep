@@ -3,7 +3,7 @@
 //! Defines the main CLI structure and all available subcommands
 //! for the sass-dep tool.
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 /// SCSS dependency graph analyzer.
@@ -22,37 +22,40 @@ pub struct Cli {
 
     /// Project root directory.
     ///
-    /// All relative paths will be resolved from this directory.
+    /// File IDs, config paths and relative load paths are resolved from here.
     #[arg(long, default_value = ".", global = true)]
     pub root: PathBuf,
 
-    /// Config file path.
-    ///
-    /// Path to a .sass-dep.toml configuration file.
-    #[arg(long, default_value = ".sass-dep.toml", global = true)]
-    pub config: PathBuf,
+    /// Config file path [default: <root>/.sass-dep.toml if present].
+    #[arg(long, global = true)]
+    pub config: Option<PathBuf>,
 
     /// Add Sass load path (can be repeated).
     ///
     /// Directories to search when resolving @use, @forward, and @import paths.
-    /// Similar to the Sass --load-path option.
+    /// Similar to the Sass --load-path option. Relative paths are resolved
+    /// against --root.
     #[arg(long = "load-path", short = 'I', global = true)]
     pub load_paths: Vec<PathBuf>,
 
     /// Suppress non-error output.
-    ///
-    /// When enabled, only error messages will be printed.
-    #[arg(long, short, global = true)]
+    #[arg(long, short, global = true, conflicts_with = "verbose")]
     pub quiet: bool,
 
-    /// Increase verbosity (-v, -vv, -vvv).
-    ///
-    /// Use multiple times for more detailed output:
-    /// - `-v`: Show warnings
-    /// - `-vv`: Show info messages
-    /// - `-vvv`: Show debug information
+    /// Increase verbosity (-v: config path, timings and every unresolved import).
     #[arg(long, short, action = clap::ArgAction::Count, global = true)]
     pub verbose: u8,
+}
+
+/// Options shared by every command that builds a graph.
+#[derive(Args, Debug, Clone, Default)]
+pub struct GraphArgs {
+    /// Entry point files [default: `entry_points` from the config file].
+    pub entry_points: Vec<PathBuf>,
+
+    /// Include files not reachable from any entry point (flagged `orphan`).
+    #[arg(long)]
+    pub include_orphans: bool,
 }
 
 /// Available subcommands.
@@ -63,33 +66,16 @@ pub enum Commands {
     /// Parses all SCSS files reachable from the entry points,
     /// builds a dependency graph, and outputs analysis results.
     Analyze {
-        /// Entry point files.
-        ///
-        /// SCSS files to start analysis from. All dependencies
-        /// will be recursively discovered and included.
-        #[arg(required = true)]
-        entry_points: Vec<PathBuf>,
+        #[command(flatten)]
+        graph: GraphArgs,
 
         /// Output file (default: stdout).
-        ///
-        /// Path to write the analysis results. If not specified,
-        /// results are written to standard output.
         #[arg(long, short)]
         output: Option<PathBuf>,
 
         /// Output format.
-        ///
-        /// Format for the analysis output.
         #[arg(long, default_value = "json", value_enum)]
         format: OutputFormat,
-
-        /// Include orphan files.
-        ///
-        /// When enabled, files in the project that are not
-        /// reachable from any entry point will be included
-        /// in the output with the Orphan flag.
-        #[arg(long)]
-        include_orphans: bool,
 
         /// Open interactive web visualization.
         ///
@@ -98,81 +84,124 @@ pub enum Commands {
         #[arg(long)]
         web: bool,
 
-        /// Port for web server (default: 3000).
-        ///
-        /// The port to use when running the web visualization server.
-        /// Only used when --web is specified.
-        #[arg(long, default_value = "3000")]
+        /// Port for the web server (tries the next ports if busy).
+        #[arg(long, default_value = "3000", requires = "web")]
         port: u16,
+
+        /// Do not open the browser automatically (with --web).
+        #[arg(long, requires = "web")]
+        no_open: bool,
     },
 
-    /// Verify graph integrity (CI mode).
+    /// Verify graph integrity and architecture rules (CI mode).
     ///
-    /// Analyzes the dependency graph and exits with a non-zero
-    /// status code if any constraints are violated. Useful for
-    /// continuous integration pipelines.
+    /// Exits with status 1 if any constraint is violated. Constraints
+    /// from the `[check]` and `[[rules]]` config sections are applied
+    /// in addition to the flags below.
     Check {
-        /// Entry point files.
-        ///
-        /// SCSS files to start analysis from.
-        #[arg(required = true)]
-        entry_points: Vec<PathBuf>,
+        #[command(flatten)]
+        graph: GraphArgs,
 
         /// Fail on circular dependencies.
-        ///
-        /// Exit with error code 1 if any cycles are detected
-        /// in the dependency graph.
         #[arg(long)]
         no_cycles: bool,
 
-        /// Maximum allowed depth.
-        ///
-        /// Exit with error if any file exceeds this depth
-        /// in the dependency tree.
+        /// Maximum allowed depth in the dependency tree.
         #[arg(long)]
         max_depth: Option<usize>,
 
-        /// Maximum allowed fan-out.
-        ///
-        /// Exit with error if any file has more direct
-        /// dependencies than this limit.
+        /// Maximum allowed direct dependencies per file.
         #[arg(long)]
         max_fan_out: Option<usize>,
 
-        /// Maximum allowed fan-in.
-        ///
-        /// Exit with error if any file has more dependents
-        /// than this limit.
+        /// Maximum allowed direct dependents per file.
         #[arg(long)]
         max_fan_in: Option<usize>,
+
+        /// Fail on files unreachable from every entry point (implies --include-orphans).
+        #[arg(long)]
+        no_orphans: bool,
+
+        /// Fail on imports that cannot be resolved.
+        #[arg(long)]
+        no_unresolved: bool,
+
+        /// Fail on legacy @import usage (removed in Dart Sass 3.0).
+        #[arg(long)]
+        no_legacy_imports: bool,
+
+        /// Report format.
+        #[arg(long, default_value = "text", value_enum)]
+        format: CheckFormat,
     },
 
-    /// Export graph to visualization formats.
+    /// Export a JSON analysis to a visualization format.
     ///
     /// Converts a previously generated JSON analysis file
     /// to various graph visualization formats.
     Export {
-        /// Input JSON file.
-        ///
-        /// Path to a JSON file generated by the analyze command.
+        /// Input JSON file (`-` reads from stdin).
         input: PathBuf,
 
         /// Output format.
-        ///
-        /// Graph visualization format to export to.
         #[arg(long, default_value = "dot", value_enum)]
         format: ExportFormat,
+
+        /// Output file (default: stdout).
+        #[arg(long, short)]
+        output: Option<PathBuf>,
+    },
+
+    /// Explain why a file is included: shortest import chain from an entry point.
+    Why {
+        /// File to explain (path or file ID).
+        file: PathBuf,
+
+        /// Entry point (can be repeated) [default: config `entry_points`].
+        #[arg(long = "entry", short = 'e')]
+        entry_points: Vec<PathBuf>,
+
+        /// Report format.
+        #[arg(long, default_value = "text", value_enum)]
+        format: ReportFormat,
+    },
+
+    /// List every file and entry point affected by changes to the given files.
+    ///
+    /// Example: `sass-dep impact $(git diff --name-only main) --format json`
+    Impact {
+        /// Changed files (paths or file IDs). Non-Sass files are ignored.
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+
+        /// Entry point (can be repeated) [default: config `entry_points`].
+        #[arg(long = "entry", short = 'e')]
+        entry_points: Vec<PathBuf>,
+
+        /// Report format.
+        #[arg(long, default_value = "text", value_enum)]
+        format: ReportFormat,
+    },
+
+    /// Create a starter .sass-dep.toml with detected entry points.
+    Init {
+        /// Overwrite an existing config file.
+        #[arg(long)]
+        force: bool,
     },
 }
 
 /// Output formats for the analyze command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum OutputFormat {
-    /// JSON format (default).
-    ///
-    /// Outputs the full analysis as a JSON document
-    /// conforming to the sass-dep schema.
+    /// Full analysis as a JSON document conforming to the sass-dep schema.
     Json,
+    /// Graphviz DOT.
+    Dot,
+    /// Mermaid flowchart.
+    Mermaid,
+    /// D2 diagram.
+    D2,
 }
 
 /// Export formats for graph visualization.
@@ -194,6 +223,26 @@ pub enum ExportFormat {
     ///
     /// Can be rendered using the D2 CLI tool.
     D2,
+}
+
+/// Report formats for `check`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum CheckFormat {
+    /// Human-readable text on stderr.
+    Text,
+    /// Machine-readable JSON on stdout.
+    Json,
+    /// GitHub Actions workflow annotations on stdout.
+    Github,
+}
+
+/// Report formats for `why` and `impact`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum ReportFormat {
+    /// Human-readable text.
+    Text,
+    /// Machine-readable JSON.
+    Json,
 }
 
 #[cfg(test)]

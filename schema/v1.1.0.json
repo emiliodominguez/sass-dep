@@ -1,0 +1,130 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://raw.githubusercontent.com/emiliodominguez/sass-dep/main/schema/v1.1.0.json",
+	"title": "sass-dep analysis",
+	"description": "Output of `sass-dep analyze --format json` (schema 1.1.0).",
+	"type": "object",
+	"required": ["$schema", "version", "metadata", "nodes", "edges", "analysis"],
+	"properties": {
+		"$schema": { "type": "string" },
+		"version": { "type": "string", "pattern": "^1\\." },
+		"metadata": {
+			"type": "object",
+			"required": ["generated_at", "root", "sass_dep_version"],
+			"properties": {
+				"generated_at": { "type": "string", "format": "date-time" },
+				"root": { "type": "string", "description": "Absolute project root." },
+				"sass_dep_version": { "type": "string" },
+				"entry_points": { "type": "array", "items": { "type": "string" } }
+			}
+		},
+		"nodes": {
+			"type": "object",
+			"description": "Files keyed by root-relative ID, sorted by ID.",
+			"additionalProperties": { "$ref": "#/$defs/node" }
+		},
+		"edges": {
+			"type": "array",
+			"description": "Dependencies sorted by (from, to). At most one edge per pair.",
+			"items": { "$ref": "#/$defs/edge" }
+		},
+		"analysis": {
+			"type": "object",
+			"required": ["cycles", "statistics"],
+			"properties": {
+				"cycles": {
+					"type": "array",
+					"description": "Ordered closed paths: cycle[i] imports cycle[i + 1], the last entry imports the first.",
+					"items": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+				},
+				"unresolved": { "type": "array", "items": { "$ref": "#/$defs/unresolved" } },
+				"statistics": { "$ref": "#/$defs/statistics" }
+			}
+		}
+	},
+	"$defs": {
+		"flag": {
+			"enum": ["entry_point", "leaf", "orphan", "high_fan_in", "high_fan_out", "in_cycle"]
+		},
+		"directive": { "enum": ["use", "forward", "import"] },
+		"location": {
+			"type": "object",
+			"required": ["line", "column"],
+			"properties": {
+				"line": { "type": "integer", "minimum": 1 },
+				"column": { "type": "integer", "minimum": 1 }
+			}
+		},
+		"node": {
+			"type": "object",
+			"required": ["path", "metrics", "flags"],
+			"properties": {
+				"path": { "type": "string", "description": "Absolute file path." },
+				"metrics": {
+					"type": "object",
+					"required": ["fan_in", "fan_out", "depth", "transitive_deps"],
+					"properties": {
+						"fan_in": { "type": "integer", "minimum": 0 },
+						"fan_out": { "type": "integer", "minimum": 0 },
+						"depth": {
+							"type": ["integer", "null"],
+							"minimum": 0,
+							"description": "Shortest distance from an entry point; null when unreachable."
+						},
+						"transitive_deps": { "type": "integer", "minimum": 0 },
+						"transitive_dependents": { "type": "integer", "minimum": 0 }
+					}
+				},
+				"flags": { "type": "array", "items": { "$ref": "#/$defs/flag" }, "uniqueItems": true }
+			}
+		},
+		"edge": {
+			"type": "object",
+			"required": ["from", "to", "directive_type", "location"],
+			"properties": {
+				"from": { "type": "string" },
+				"to": { "type": "string" },
+				"directive_type": { "$ref": "#/$defs/directive" },
+				"location": { "$ref": "#/$defs/location" },
+				"namespace": { "type": "string", "description": "@use namespace; `*` for global." },
+				"configured": { "type": "boolean", "description": "@use ... with (...)." }
+			}
+		},
+		"unresolved": {
+			"type": "object",
+			"required": ["from", "target", "directive_type", "location"],
+			"properties": {
+				"from": { "type": "string" },
+				"target": { "type": "string" },
+				"directive_type": { "$ref": "#/$defs/directive" },
+				"location": { "$ref": "#/$defs/location" }
+			}
+		},
+		"statistics": {
+			"type": "object",
+			"required": [
+				"total_files",
+				"total_dependencies",
+				"entry_points",
+				"orphan_files",
+				"leaf_files",
+				"max_depth",
+				"max_fan_in",
+				"max_fan_out"
+			],
+			"properties": {
+				"total_files": { "type": "integer", "minimum": 0 },
+				"total_dependencies": { "type": "integer", "minimum": 0 },
+				"entry_points": { "type": "integer", "minimum": 0 },
+				"orphan_files": { "type": "integer", "minimum": 0 },
+				"leaf_files": { "type": "integer", "minimum": 0 },
+				"max_depth": { "type": "integer", "minimum": 0 },
+				"max_fan_in": { "type": "integer", "minimum": 0 },
+				"max_fan_out": { "type": "integer", "minimum": 0 },
+				"cycle_count": { "type": "integer", "minimum": 0 },
+				"unresolved_imports": { "type": "integer", "minimum": 0 },
+				"import_directives": { "type": "integer", "minimum": 0 }
+			}
+		}
+	}
+}

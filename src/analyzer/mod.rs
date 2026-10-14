@@ -3,9 +3,10 @@
 //! This module provides algorithms for analyzing the dependency graph,
 //! including:
 //!
-//! - Cycle detection using Tarjan's algorithm
-//! - Depth calculation via BFS from entry points
+//! - Cycle detection using Tarjan's algorithm (with ordered cycle paths)
+//! - Depth calculation via multi-source BFS from entry points
 //! - Fan-in/fan-out computation
+//! - Transitive dependencies/dependents via SCC condensation + bitsets
 //! - Flag assignment based on configurable thresholds
 //!
 //! # Example
@@ -24,6 +25,8 @@
 mod cycles;
 mod flags;
 mod metrics;
+
+use petgraph::algo::tarjan_scc;
 
 pub use cycles::detect_cycles;
 pub use flags::{assign_flags, FlagThresholds};
@@ -53,27 +56,27 @@ impl Analyzer {
     /// Performs full analysis on the dependency graph.
     ///
     /// This method:
-    /// 1. Detects cycles using Tarjan's algorithm
-    /// 2. Calculates fan-in/fan-out for all nodes
-    /// 3. Calculates depth from entry points
-    /// 4. Calculates transitive dependencies
-    /// 5. Assigns flags based on thresholds
+    /// 1. Computes strongly connected components once (Tarjan)
+    /// 2. Derives ordered cycles from them
+    /// 3. Calculates fan-in/fan-out for all nodes
+    /// 4. Calculates depth from entry points
+    /// 5. Calculates transitive dependencies and dependents
+    /// 6. Assigns flags based on thresholds
     pub fn analyze(&self, graph: &mut crate::graph::DependencyGraph) {
-        // Step 1: Detect cycles
-        let cycles = detect_cycles(graph);
+        let sccs = tarjan_scc(graph.inner());
+
+        let cycles = cycles::cycles_from_sccs(graph, &sccs);
         graph.set_cycles(cycles);
 
-        // Step 2: Calculate fan-in/fan-out
         calculate_fan_in_out(graph);
-
-        // Step 3: Calculate depths
         calculate_depths(graph);
-
-        // Step 4: Calculate transitive dependencies
-        calculate_transitive_deps(graph);
-
-        // Step 5: Assign flags
+        metrics::calculate_transitive_from_sccs(graph, &sccs);
         assign_flags(graph, &self.config.thresholds);
+    }
+
+    /// Returns the analyzer configuration.
+    pub fn config(&self) -> &AnalyzerConfig {
+        &self.config
     }
 }
 

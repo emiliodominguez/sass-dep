@@ -48,6 +48,7 @@ coverage/
 !tsconfig.json
 !tsconfig.*.json
 !tests/fixtures/**/*.json
+!schema/*.json
 node_modules/
-output/
+/output/
 dist/

@@ -63,14 +63,21 @@ pub struct NodeMetrics {
     pub fan_in: usize,
     /// Number of files this file depends on (out-degree).
     pub fan_out: usize,
-    /// Distance from the nearest entry point.
-    pub depth: usize,
-    /// Total number of transitive dependencies.
+    /// Shortest distance from any entry point.
+    ///
+    /// `None` when the file is unreachable from every entry point (orphans).
+    pub depth: Option<usize>,
+    /// Number of files this file depends on, directly or indirectly.
     pub transitive_deps: usize,
+    /// Number of files that depend on this file, directly or indirectly.
+    ///
+    /// This is the "blast radius" of a change to this file.
+    #[serde(default)]
+    pub transitive_dependents: usize,
 }
 
 /// Flags that can be assigned to nodes based on analysis.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NodeFlag {
     /// This file is an entry point (explicitly specified).
@@ -154,13 +161,27 @@ impl std::fmt::Display for DirectiveType {
 }
 
 /// Additional metadata for a dependency edge.
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EdgeMeta {
     /// Namespace used for this import (for `@use`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub namespace: Option<String>,
     /// Whether the module is configured (for `@use ... with`).
+    #[serde(default)]
     pub configured: bool,
+}
+
+/// A directive whose target could not be resolved to a file.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UnresolvedImport {
+    /// ID of the file containing the directive.
+    pub from: String,
+    /// The raw target string from the directive.
+    pub target: String,
+    /// Type of directive.
+    pub directive_type: DirectiveType,
+    /// Source location of the directive.
+    pub location: Location,
 }
 
 #[cfg(test)]
@@ -169,7 +190,10 @@ mod tests {
 
     #[test]
     fn file_node_new() {
-        let node = FileNode::new("src/main.scss".to_string(), PathBuf::from("/project/src/main.scss"));
+        let node = FileNode::new(
+            "src/main.scss".to_string(),
+            PathBuf::from("/project/src/main.scss"),
+        );
 
         assert_eq!(node.id, "src/main.scss");
         assert_eq!(node.absolute_path, PathBuf::from("/project/src/main.scss"));

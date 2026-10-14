@@ -224,11 +224,7 @@ fn graph_with_forward_directives() {
     let root = temp.path().canonicalize().unwrap();
 
     fs::create_dir_all(root.join("base")).unwrap();
-    fs::write(
-        root.join("main.scss"),
-        "@use \"base\";\n",
-    )
-    .unwrap();
+    fs::write(root.join("main.scss"), "@use \"base\";\n").unwrap();
     fs::write(
         root.join("base/_index.scss"),
         "@forward \"reset\";\n@forward \"typography\";\n",

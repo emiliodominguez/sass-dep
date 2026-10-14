@@ -3,7 +3,7 @@
 //! This module defines the data structures that represent parsed
 //! SCSS dependency directives.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// A parsed SCSS directive that creates a dependency.
 #[derive(Debug, Clone, PartialEq)]
@@ -142,7 +142,7 @@ pub struct ImportDirective {
 }
 
 /// Source location of a directive.
-#[derive(Debug, Clone, PartialEq, Default, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Location {
     /// Line number (1-indexed).
     pub line: usize,

@@ -223,10 +223,7 @@ fn resolve_relative_path_from_nested() {
 
     let resolver = Resolver::default();
     // Resolve from nested file going up
-    let result = resolver.resolve(
-        &temp.path().join("components/_button.scss"),
-        "../variables",
-    );
+    let result = resolver.resolve(&temp.path().join("components/_button.scss"), "../variables");
 
     assert!(result.is_ok());
     let resolved = result.unwrap();

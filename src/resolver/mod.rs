@@ -8,15 +8,16 @@
 //! For a path like `@use "foo"` from `/project/src/main.scss`, the resolver
 //! searches in the following order:
 //!
-//! 1. `/project/src/foo.scss`
-//! 2. `/project/src/foo.sass`
-//! 3. `/project/src/_foo.scss`
-//! 4. `/project/src/_foo.sass`
-//! 5. `/project/src/foo/index.scss`
-//! 6. `/project/src/foo/_index.scss`
-//! 7. `/project/src/foo/index.sass`
-//! 8. `/project/src/foo/_index.sass`
-//! 9. Repeat for each load path
+//! 1. `/project/src/foo.scss`, then `/project/src/_foo.scss`
+//! 2. `/project/src/foo.sass`, then `/project/src/_foo.sass`
+//! 3. `/project/src/foo.css`, then `/project/src/_foo.css` (`@use`/`@forward` only)
+//! 4. `/project/src/foo/index.*`, then `/project/src/foo/_index.*` (same extension order)
+//! 5. Repeat for each load path
+//!
+//! `@import` additionally prefers import-only files (`foo.import.scss`).
+//! Targets with an explicit extension (`"foo.scss"`) only match that extension.
+//! Webpack-style `~package/path` targets are looked up in the load paths and
+//! in `node_modules` directories walking up from the importing file.
 //!
 //! # Example
 //!
@@ -35,4 +36,4 @@
 
 mod path;
 
-pub use path::{ResolveError, Resolver, ResolverConfig};
+pub use path::{ResolveError, ResolveKind, Resolver, ResolverConfig};

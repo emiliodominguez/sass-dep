@@ -11,7 +11,9 @@
 //! ## Modules
 //!
 //! - [`cli`] - Command-line interface definitions
-//! - [`parser`] - SCSS directive parsing using nom
+//! - [`commands`] - Command implementations (analyze, check, export, why, impact, init)
+//! - [`config`] - `.sass-dep.toml` configuration
+//! - [`parser`] - SCSS directive parsing (single-pass byte scanner)
 //! - [`resolver`] - Sass-compliant path resolution
 //! - [`graph`] - Dependency graph construction and representation
 //! - [`analyzer`] - Graph analysis (cycles, metrics, flags)
@@ -21,21 +23,27 @@
 //! ## Example
 //!
 //! ```no_run
-//! use sass_dep::graph::DependencyGraph;
-//! use sass_dep::resolver::{Resolver, ResolverConfig};
-//! use std::path::PathBuf;
+//! use sass_dep::{Analyzer, DependencyGraph, OutputSchema, Resolver};
+//! use std::path::Path;
 //!
-//! let config = ResolverConfig::default();
-//! let resolver = Resolver::new(config);
+//! # fn main() -> anyhow::Result<()> {
+//! let root = Path::new(".").canonicalize()?;
+//! let resolver = Resolver::default();
 //! let mut graph = DependencyGraph::new();
 //!
-//! // Build graph from entry point
-//! // graph.build_from_entry(&PathBuf::from("src/main.scss"), &resolver)?;
+//! graph.build_from_entry(&root.join("src/main.scss"), &resolver, &root)?;
+//! Analyzer::default().analyze(&mut graph);
+//!
+//! let schema = OutputSchema::from_graph(&graph, &root);
+//! println!("{} files, {} cycles", schema.nodes.len(), schema.analysis.cycles.len());
+//! # Ok(())
+//! # }
 //! ```
 
 pub mod analyzer;
 pub mod cli;
 pub mod commands;
+pub mod config;
 pub mod graph;
 pub mod output;
 pub mod parser;
@@ -44,6 +52,7 @@ pub mod web;
 
 // Re-export commonly used types
 pub use analyzer::Analyzer;
+pub use config::Config;
 pub use graph::DependencyGraph;
 pub use output::OutputSchema;
 pub use parser::Directive;

@@ -33,7 +33,9 @@ mod builder;
 mod node;
 
 pub use builder::DependencyGraph;
-pub use node::{DependencyEdge, DirectiveType, EdgeMeta, FileNode, NodeFlag, NodeMetrics};
+pub use node::{
+    DependencyEdge, DirectiveType, EdgeMeta, FileNode, NodeFlag, NodeMetrics, UnresolvedImport,
+};
 
 /// Type alias for node indices in the graph.
 pub type NodeId = petgraph::graph::NodeIndex;

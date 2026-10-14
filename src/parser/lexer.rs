@@ -1,17 +1,15 @@
-//! SCSS lexer and parser implementation using nom.
+//! Hand-written, single-pass SCSS scanner.
 //!
-//! This module implements a minimal parser that extracts only dependency
-//! directives (`@use`, `@forward`, `@import`) from SCSS source code.
+//! This module extracts only dependency directives (`@use`, `@forward`,
+//! `@import`) from SCSS source code. It walks the input exactly once at the
+//! byte level, skipping strings, comments and `url(...)` tokens so that `@`
+//! characters inside them are never mistaken for directives.
+//!
+//! Every byte is consumed through [`Cursor::bump`], which keeps line/column
+//! tracking exact even when a directive spans several lines (for example a
+//! multi-line `with (...)` configuration map).
 
-use nom::{
-    branch::alt,
-    bytes::complete::{tag_no_case, take_until, take_while, take_while1},
-    character::complete::{char, multispace0, multispace1},
-    combinator::{map, opt, peek, recognize, value},
-    multi::separated_list1,
-    sequence::{delimited, pair, tuple},
-    IResult,
-};
+use std::path::Path;
 
 use super::{
     Directive, ForwardDirective, ImportDirective, Location, Namespace, ParseError, UseDirective,
@@ -30,7 +28,9 @@ impl Parser {
     ///
     /// # Returns
     ///
-    /// A vector of parsed directives, or an error if parsing fails.
+    /// A vector of parsed directives in source order. The scanner is
+    /// error-tolerant: malformed directives are skipped rather than
+    /// aborting the whole file, so this currently never returns `Err`.
     ///
     /// # Example
     ///
@@ -46,333 +46,484 @@ impl Parser {
     /// assert_eq!(directives.len(), 2);
     /// ```
     pub fn parse(input: &str) -> Result<Vec<Directive>, ParseError> {
+        Ok(Self::parse_bytes(input.as_bytes()))
+    }
+
+    /// Parses raw bytes and extracts all dependency directives.
+    ///
+    /// Invalid UTF-8 is tolerated: paths and identifiers are decoded lossily.
+    pub fn parse_bytes(input: &[u8]) -> Vec<Directive> {
+        let mut cursor = Cursor::new(input);
         let mut directives = Vec::new();
-        let mut remaining = input;
-        let mut current_line = 1;
-        let mut line_start = 0;
 
-        while !remaining.is_empty() {
-            // Skip whitespace and track position
-            let (new_remaining, skipped) = skip_to_at_or_end(remaining);
-
-            // Update line tracking
-            for (i, c) in skipped.char_indices() {
-                if c == '\n' {
-                    current_line += 1;
-                    line_start = input.len() - remaining.len() + i + 1;
+        while let Some(byte) = cursor.peek() {
+            match byte {
+                b'"' | b'\'' => {
+                    cursor.bump();
+                    cursor.skip_string_body(byte);
                 }
-            }
-
-            remaining = new_remaining;
-
-            if remaining.is_empty() {
-                break;
-            }
-
-            // Check for @ symbol
-            if !remaining.starts_with('@') {
-                // Skip one character and continue
-                let mut chars = remaining.chars();
-                if let Some(c) = chars.next() {
-                    if c == '\n' {
-                        current_line += 1;
-                        line_start = input.len() - remaining.len() + 1;
+                b'/' if cursor.peek_at(1) == Some(b'/') => cursor.skip_line_comment(),
+                b'/' if cursor.peek_at(1) == Some(b'*') => cursor.skip_block_comment(),
+                b'u' | b'U' if cursor.at_url_token() => cursor.skip_url_token(),
+                b'@' => {
+                    let location = cursor.location();
+                    cursor.bump();
+                    if let Some(directive) = parse_directive(&mut cursor, location) {
+                        directives.push(directive);
                     }
-                    remaining = chars.as_str();
                 }
-                continue;
-            }
-
-            // Calculate column
-            let current_pos = input.len() - remaining.len();
-            let column = current_pos - line_start + 1;
-            let location = Location::new(current_line, column);
-
-            // Try to parse a directive
-            if let Ok((new_remaining, directive)) = parse_directive(remaining, &location) {
-                directives.push(directive);
-                remaining = new_remaining;
-            } else {
-                // Not a directive we care about, skip the @ and continue
-                remaining = &remaining[1..];
+                _ => {
+                    cursor.bump();
+                }
             }
         }
 
-        Ok(directives)
+        directives
     }
 
-    /// Parses a single file and returns its directives.
+    /// Reads and parses a single file.
     ///
     /// # Arguments
     ///
     /// * `path` - Path to the SCSS file
     ///
-    /// # Returns
+    /// # Errors
     ///
-    /// A vector of parsed directives, or an error.
-    pub fn parse_file(path: &std::path::Path) -> Result<Vec<Directive>, ParseError> {
-        let content = std::fs::read_to_string(path)?;
-        Self::parse(&content)
+    /// Returns [`ParseError::Io`] if the file cannot be read.
+    pub fn parse_file(path: &Path) -> Result<Vec<Directive>, ParseError> {
+        let content = std::fs::read(path)?;
+        Ok(Self::parse_bytes(&content))
     }
 }
 
-/// Skips characters until an @ symbol or end of input.
-fn skip_to_at_or_end(input: &str) -> (&str, &str) {
-    let mut in_string = false;
-    let mut string_char = '"';
-    let mut in_single_comment = false;
-    let mut in_multi_comment = false;
-    let mut prev_char = '\0';
-    let mut end_pos = 0;
+/// Byte cursor with exact line tracking.
+#[derive(Clone)]
+struct Cursor<'a> {
+    src: &'a [u8],
+    pos: usize,
+    line: usize,
+    line_start: usize,
+}
 
-    let chars: Vec<char> = input.chars().collect();
-    let mut i = 0;
-
-    while i < chars.len() {
-        let c = chars[i];
-
-        // Handle string literals
-        if !in_single_comment && !in_multi_comment {
-            if !in_string && (c == '"' || c == '\'') {
-                in_string = true;
-                string_char = c;
-            } else if in_string && c == string_char && prev_char != '\\' {
-                in_string = false;
-            }
+impl<'a> Cursor<'a> {
+    /// Creates a cursor at the start of `src`.
+    fn new(src: &'a [u8]) -> Self {
+        Self {
+            src,
+            pos: 0,
+            line: 1,
+            line_start: 0,
         }
-
-        // Handle comments
-        if !in_string && !in_single_comment && !in_multi_comment && c == '/' && i + 1 < chars.len() {
-            if chars[i + 1] == '/' {
-                in_single_comment = true;
-                i += 2;
-                continue;
-            } else if chars[i + 1] == '*' {
-                in_multi_comment = true;
-                i += 2;
-                continue;
-            }
-        }
-
-        // End single-line comment on newline
-        if in_single_comment && c == '\n' {
-            in_single_comment = false;
-        }
-
-        // End multi-line comment
-        if in_multi_comment && c == '*' && i + 1 < chars.len() && chars[i + 1] == '/' {
-            in_multi_comment = false;
-            i += 2;
-            continue;
-        }
-
-        // Check for @ outside strings and comments
-        if c == '@' && !in_string && !in_single_comment && !in_multi_comment {
-            let skipped = &input[..end_pos];
-            let remaining = &input[end_pos..];
-            return (remaining, skipped);
-        }
-
-        prev_char = c;
-        end_pos += c.len_utf8();
-        i += 1;
     }
 
-    ("", input)
+    /// Returns the current byte without consuming it.
+    #[inline]
+    fn peek(&self) -> Option<u8> {
+        self.src.get(self.pos).copied()
+    }
+
+    /// Returns the byte `offset` positions ahead without consuming anything.
+    #[inline]
+    fn peek_at(&self, offset: usize) -> Option<u8> {
+        self.src.get(self.pos + offset).copied()
+    }
+
+    /// Consumes one byte, updating line tracking.
+    #[inline]
+    fn bump(&mut self) -> Option<u8> {
+        let byte = self.peek()?;
+        self.pos += 1;
+        if byte == b'\n' {
+            self.line += 1;
+            self.line_start = self.pos;
+        }
+        Some(byte)
+    }
+
+    /// Returns the 1-indexed location of the cursor (column counted in characters).
+    fn location(&self) -> Location {
+        let column = self.src[self.line_start..self.pos]
+            .iter()
+            .filter(|&&b| (b & 0xC0) != 0x80)
+            .count()
+            + 1;
+        Location::new(self.line, column)
+    }
+
+    /// Skips the body of a string whose opening `quote` was already consumed.
+    ///
+    /// Stops after the closing quote, or before an unescaped newline
+    /// (unterminated string), so a malformed string cannot swallow the file.
+    fn skip_string_body(&mut self, quote: u8) {
+        while let Some(byte) = self.peek() {
+            match byte {
+                b'\\' => {
+                    self.bump();
+                    self.bump();
+                }
+                b'\n' => return,
+                _ => {
+                    self.bump();
+                    if byte == quote {
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Skips a `//` comment up to (not including) the newline.
+    fn skip_line_comment(&mut self) {
+        while let Some(byte) = self.peek() {
+            if byte == b'\n' {
+                return;
+            }
+            self.bump();
+        }
+    }
+
+    /// Skips a `/* ... */` comment including its terminator.
+    fn skip_block_comment(&mut self) {
+        self.bump();
+        self.bump();
+        while let Some(byte) = self.bump() {
+            if byte == b'*' && self.peek() == Some(b'/') {
+                self.bump();
+                return;
+            }
+        }
+    }
+
+    /// Skips whitespace and comments.
+    fn skip_trivia(&mut self) {
+        while let Some(byte) = self.peek() {
+            match byte {
+                b' ' | b'\t' | b'\n' | b'\r' | b'\x0C' => {
+                    self.bump();
+                }
+                b'/' if self.peek_at(1) == Some(b'/') => self.skip_line_comment(),
+                b'/' if self.peek_at(1) == Some(b'*') => self.skip_block_comment(),
+                _ => return,
+            }
+        }
+    }
+
+    /// Skips spaces and tabs only (never crosses a line boundary).
+    fn skip_inline_space(&mut self) {
+        while matches!(self.peek(), Some(b' ' | b'\t')) {
+            self.bump();
+        }
+    }
+
+    /// Returns `true` if the cursor sits on a `url(` token that starts an identifier.
+    fn at_url_token(&self) -> bool {
+        let starts_ident = self.pos == 0 || !is_ident_byte(self.src[self.pos - 1]);
+        starts_ident
+            && self.src.len() >= self.pos + 4
+            && self.src[self.pos..self.pos + 3].eq_ignore_ascii_case(b"url")
+            && self.src[self.pos + 3] == b'('
+    }
+
+    /// Skips a `url(...)` token, whose unquoted body may legally contain `//` or `@`.
+    fn skip_url_token(&mut self) {
+        for _ in 0..3 {
+            self.bump();
+        }
+        self.skip_balanced();
+    }
+
+    /// Consumes `keyword` case-insensitively if it is followed by a non-identifier byte.
+    fn eat_keyword(&mut self, keyword: &[u8]) -> bool {
+        let end = self.pos + keyword.len();
+        if end > self.src.len() || !self.src[self.pos..end].eq_ignore_ascii_case(keyword) {
+            return false;
+        }
+        if self.src.get(end).copied().is_some_and(is_ident_byte) {
+            return false;
+        }
+        for _ in 0..keyword.len() {
+            self.bump();
+        }
+        true
+    }
+
+    /// Reads an identifier (`[A-Za-z0-9_-]` plus any non-ASCII byte).
+    fn read_ident(&mut self) -> Option<String> {
+        let start = self.pos;
+        while self.peek().is_some_and(is_ident_byte) {
+            self.bump();
+        }
+        (self.pos > start).then(|| String::from_utf8_lossy(&self.src[start..self.pos]).into_owned())
+    }
+
+    /// Reads a quoted string literal, unescaping `\x` sequences to `x`.
+    fn read_string(&mut self) -> Option<String> {
+        let quote = self.peek().filter(|b| *b == b'"' || *b == b'\'')?;
+        self.bump();
+
+        let mut buf = Vec::new();
+        while let Some(byte) = self.peek() {
+            match byte {
+                b'\\' => {
+                    self.bump();
+                    buf.push(self.bump()?);
+                }
+                b'\n' => return None,
+                _ if byte == quote => {
+                    self.bump();
+                    return Some(String::from_utf8_lossy(&buf).into_owned());
+                }
+                _ => {
+                    buf.push(byte);
+                    self.bump();
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Skips a balanced parenthesised group starting at `(`.
+    ///
+    /// Nested parentheses, strings and comments are handled, so
+    /// `with ($map: (a: ")"))` is consumed as a single unit.
+    fn skip_balanced(&mut self) -> bool {
+        if self.peek() != Some(b'(') {
+            return false;
+        }
+
+        let mut depth = 0usize;
+        while let Some(byte) = self.peek() {
+            match byte {
+                b'(' => {
+                    depth += 1;
+                    self.bump();
+                }
+                b')' => {
+                    self.bump();
+                    depth -= 1;
+                    if depth == 0 {
+                        return true;
+                    }
+                }
+                b'"' | b'\'' => {
+                    self.bump();
+                    self.skip_string_body(byte);
+                }
+                b'/' if self.peek_at(1) == Some(b'*') => self.skip_block_comment(),
+                _ => {
+                    self.bump();
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Consumes an optional trailing `;`.
+    fn eat_semicolon(&mut self) {
+        self.skip_inline_space();
+        if self.peek() == Some(b';') {
+            self.bump();
+        }
+    }
 }
 
-/// Parses a directive starting with @.
-fn parse_directive<'a>(input: &'a str, location: &Location) -> IResult<&'a str, Directive> {
-    alt((
-        map(|i| parse_use_directive(i, location), Directive::Use),
-        map(|i| parse_forward_directive(i, location), Directive::Forward),
-        map(|i| parse_import_directive(i, location), Directive::Import),
-    ))(input)
+/// Returns `true` for bytes that may appear in a Sass identifier.
+#[inline]
+fn is_ident_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_' || byte >= 0x80
 }
 
-/// Parses a @use directive.
-fn parse_use_directive<'a>(input: &'a str, location: &Location) -> IResult<&'a str, UseDirective> {
-    let (input, _) = tag_no_case("@use")(input)?;
-    let (input, _) = multispace1(input)?;
-    let (input, path) = parse_string(input)?;
-    let (input, _) = multispace0(input)?;
-
-    // Parse optional "as" clause
-    let (input, namespace) = opt(parse_as_clause)(input)?;
-    let (input, _) = multispace0(input)?;
-
-    // Parse optional "with" clause
-    let (input, configured) = map(opt(parse_with_clause), |w| w.is_some())(input)?;
-    let (input, _) = multispace0(input)?;
-
-    // Consume semicolon
-    let (input, _) = opt(char(';'))(input)?;
-
-    Ok((
-        input,
-        UseDirective {
-            path,
-            namespace,
-            configured,
-            location: location.clone(),
-        },
-    ))
+/// Returns `true` if an `@import` target is a plain CSS import (not a Sass dependency).
+///
+/// Per the Sass spec, imports ending in `.css`, absolute URLs and
+/// protocol-relative URLs are emitted as-is and never loaded by Sass.
+fn is_plain_css_import(target: &str) -> bool {
+    target.ends_with(".css")
+        || target.starts_with("http://")
+        || target.starts_with("https://")
+        || target.starts_with("//")
 }
 
-/// Parses the "as" clause in @use.
-fn parse_as_clause(input: &str) -> IResult<&str, Namespace> {
-    let (input, _) = tag_no_case("as")(input)?;
-    let (input, _) = multispace1(input)?;
-
-    alt((
-        value(Namespace::Star, char('*')),
-        map(parse_identifier, |s| Namespace::Named(s.to_string())),
-    ))(input)
-}
-
-/// Parses the "with" clause in @use.
-fn parse_with_clause(input: &str) -> IResult<&str, ()> {
-    let (input, _) = tag_no_case("with")(input)?;
-    let (input, _) = multispace0(input)?;
-    let (input, _) = delimited(char('('), take_until(")"), char(')'))(input)?;
-    Ok((input, ()))
-}
-
-/// Parses a @forward directive.
-fn parse_forward_directive<'a>(
-    input: &'a str,
-    location: &Location,
-) -> IResult<&'a str, ForwardDirective> {
-    let (input, _) = tag_no_case("@forward")(input)?;
-    let (input, _) = multispace1(input)?;
-    let (input, path) = parse_string(input)?;
-    let (input, _) = multispace0(input)?;
-
-    // Parse optional "as prefix-*" clause
-    let (input, prefix) = opt(parse_forward_as_clause)(input)?;
-    let (input, _) = multispace0(input)?;
-
-    // Parse optional "show" or "hide" clause
-    let (input, visibility) = parse_visibility_clause(input)?;
-    let (input, _) = multispace0(input)?;
-
-    // Consume semicolon
-    let (input, _) = opt(char(';'))(input)?;
-
-    Ok((
-        input,
-        ForwardDirective {
-            path,
-            prefix,
-            visibility,
-            location: location.clone(),
-        },
-    ))
-}
-
-/// Parses the "as prefix-*" clause in @forward.
-fn parse_forward_as_clause(input: &str) -> IResult<&str, String> {
-    let (input, _) = tag_no_case("as")(input)?;
-    let (input, _) = multispace1(input)?;
-
-    // Parse identifier followed by -* pattern
-    // We need to be careful: the prefix can contain hyphens, but ends with -*
-    // So we look for anything up to and including "-*"
-    let (input, prefix_with_star) = take_while1(|c: char| c.is_alphanumeric() || c == '-' || c == '_' || c == '*')(input)?;
-
-    // Validate it ends with -* and extract the prefix
-    if prefix_with_star.ends_with("-*") {
-        let prefix = prefix_with_star.trim_end_matches('*');
-        Ok((input, prefix.to_string()))
+/// Parses the directive following an already-consumed `@`.
+fn parse_directive(cursor: &mut Cursor<'_>, location: Location) -> Option<Directive> {
+    if cursor.eat_keyword(b"use") {
+        parse_use(cursor, location).map(Directive::Use)
+    } else if cursor.eat_keyword(b"forward") {
+        parse_forward(cursor, location).map(Directive::Forward)
+    } else if cursor.eat_keyword(b"import") {
+        parse_import(cursor, location).map(Directive::Import)
     } else {
-        // Not a valid prefix pattern
-        Err(nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Tag)))
+        None
     }
 }
 
-/// Parses the visibility clause (show/hide) in @forward.
-fn parse_visibility_clause(input: &str) -> IResult<&str, Visibility> {
-    alt((
-        map(parse_show_clause, Visibility::Show),
-        map(parse_hide_clause, Visibility::Hide),
-        value(Visibility::All, peek(alt((char(';'), char('\n'))))),
-        value(Visibility::All, multispace0),
-    ))(input)
+/// Parses the remainder of `@use "<path>" [as <ns>|*] [with (...)];`.
+fn parse_use(cursor: &mut Cursor<'_>, location: Location) -> Option<UseDirective> {
+    cursor.skip_trivia();
+    let path = cursor.read_string()?;
+
+    let mut namespace = None;
+    let mut configured = false;
+
+    let checkpoint = cursor.clone();
+    cursor.skip_trivia();
+    if cursor.eat_keyword(b"as") {
+        cursor.skip_trivia();
+        if cursor.peek() == Some(b'*') {
+            cursor.bump();
+            namespace = Some(Namespace::Star);
+        } else {
+            namespace = cursor.read_ident().map(Namespace::Named);
+        }
+    } else {
+        *cursor = checkpoint;
+    }
+
+    let checkpoint = cursor.clone();
+    cursor.skip_trivia();
+    if cursor.eat_keyword(b"with") {
+        cursor.skip_trivia();
+        configured = cursor.skip_balanced();
+    } else {
+        *cursor = checkpoint;
+    }
+
+    cursor.eat_semicolon();
+
+    Some(UseDirective {
+        path,
+        namespace,
+        configured,
+        location,
+    })
 }
 
-/// Parses a "show" clause.
-fn parse_show_clause(input: &str) -> IResult<&str, Vec<String>> {
-    let (input, _) = tag_no_case("show")(input)?;
-    let (input, _) = multispace1(input)?;
-    parse_member_list(input)
+/// Parses the remainder of `@forward "<path>" [as prefix-*] [show|hide ...] [with (...)];`.
+fn parse_forward(cursor: &mut Cursor<'_>, location: Location) -> Option<ForwardDirective> {
+    cursor.skip_trivia();
+    let path = cursor.read_string()?;
+
+    let mut prefix = None;
+    let mut visibility = Visibility::All;
+
+    let checkpoint = cursor.clone();
+    cursor.skip_trivia();
+    if cursor.eat_keyword(b"as") {
+        cursor.skip_trivia();
+        let ident = cursor.read_ident();
+        if cursor.peek() == Some(b'*') {
+            cursor.bump();
+            prefix = ident;
+        }
+    } else {
+        *cursor = checkpoint;
+    }
+
+    let checkpoint = cursor.clone();
+    cursor.skip_trivia();
+    if cursor.eat_keyword(b"show") {
+        visibility = Visibility::Show(read_member_list(cursor));
+    } else if cursor.eat_keyword(b"hide") {
+        visibility = Visibility::Hide(read_member_list(cursor));
+    } else {
+        *cursor = checkpoint;
+    }
+
+    let checkpoint = cursor.clone();
+    cursor.skip_trivia();
+    if cursor.eat_keyword(b"with") {
+        cursor.skip_trivia();
+        cursor.skip_balanced();
+    } else {
+        *cursor = checkpoint;
+    }
+
+    cursor.eat_semicolon();
+
+    Some(ForwardDirective {
+        path,
+        prefix,
+        visibility,
+        location,
+    })
 }
 
-/// Parses a "hide" clause.
-fn parse_hide_clause(input: &str) -> IResult<&str, Vec<String>> {
-    let (input, _) = tag_no_case("hide")(input)?;
-    let (input, _) = multispace1(input)?;
-    parse_member_list(input)
+/// Reads a comma-separated list of members (`$var`, `mixin-name`, ...).
+fn read_member_list(cursor: &mut Cursor<'_>) -> Vec<String> {
+    let mut members = Vec::new();
+
+    loop {
+        cursor.skip_trivia();
+        let is_variable = cursor.peek() == Some(b'$');
+        if is_variable {
+            cursor.bump();
+        }
+        match cursor.read_ident() {
+            Some(name) if is_variable => members.push(format!("${name}")),
+            Some(name) => members.push(name),
+            None => break,
+        }
+
+        let checkpoint = cursor.clone();
+        cursor.skip_trivia();
+        if cursor.peek() == Some(b',') {
+            cursor.bump();
+        } else {
+            *cursor = checkpoint;
+            break;
+        }
+    }
+
+    members
 }
 
-/// Parses a comma-separated list of members.
-fn parse_member_list(input: &str) -> IResult<&str, Vec<String>> {
-    separated_list1(
-        tuple((multispace0, char(','), multispace0)),
-        map(parse_member, |s| s.to_string()),
-    )(input)
-}
+/// Parses the remainder of `@import "a", "b" [media-query];`.
+///
+/// Plain CSS imports (`url(...)`, `*.css`, remote URLs, or any import
+/// followed by a media query) are dropped because Sass never loads them.
+/// Returns `None` when no Sass dependency remains.
+fn parse_import(cursor: &mut Cursor<'_>, location: Location) -> Option<ImportDirective> {
+    let mut paths = Vec::new();
 
-/// Parses a member name (variable, mixin, or function).
-fn parse_member(input: &str) -> IResult<&str, &str> {
-    recognize(pair(
-        opt(char('$')),
-        take_while1(|c: char| c.is_alphanumeric() || c == '-' || c == '_'),
-    ))(input)
-}
+    loop {
+        cursor.skip_trivia();
+        match cursor.peek() {
+            Some(b'"' | b'\'') => {
+                let target = cursor.read_string()?;
+                if !is_plain_css_import(&target) {
+                    paths.push(target);
+                }
+            }
+            Some(b'u' | b'U') if cursor.at_url_token() => cursor.skip_url_token(),
+            _ => break,
+        }
 
-/// Parses a @import directive.
-fn parse_import_directive<'a>(
-    input: &'a str,
-    location: &Location,
-) -> IResult<&'a str, ImportDirective> {
-    let (input, _) = tag_no_case("@import")(input)?;
-    let (input, _) = multispace1(input)?;
+        let checkpoint = cursor.clone();
+        cursor.skip_trivia();
+        if cursor.peek() == Some(b',') {
+            cursor.bump();
+        } else {
+            *cursor = checkpoint;
+            break;
+        }
+    }
 
-    // Parse comma-separated list of paths
-    let (input, paths) = separated_list1(
-        tuple((multispace0, char(','), multispace0)),
-        parse_string,
-    )(input)?;
+    // Anything other than a terminator on the same line is a media query or
+    // `supports()` condition, which turns the whole rule into plain CSS.
+    cursor.skip_inline_space();
+    let has_condition = !matches!(
+        cursor.peek(),
+        None | Some(b';' | b'\n' | b'\r' | b'}' | b'/')
+    );
+    if has_condition {
+        return None;
+    }
 
-    let (input, _) = multispace0(input)?;
-    let (input, _) = opt(char(';'))(input)?;
+    cursor.eat_semicolon();
 
-    Ok((
-        input,
-        ImportDirective {
-            paths,
-            location: location.clone(),
-        },
-    ))
-}
-
-/// Parses a quoted string.
-fn parse_string(input: &str) -> IResult<&str, String> {
-    alt((
-        map(
-            delimited(char('"'), take_while(|c| c != '"'), char('"')),
-            |s: &str| s.to_string(),
-        ),
-        map(
-            delimited(char('\''), take_while(|c| c != '\''), char('\'')),
-            |s: &str| s.to_string(),
-        ),
-    ))(input)
-}
-
-/// Parses an identifier.
-fn parse_identifier(input: &str) -> IResult<&str, &str> {
-    take_while1(|c: char| c.is_alphanumeric() || c == '-' || c == '_')(input)
+    (!paths.is_empty()).then_some(ImportDirective { paths, location })
 }
 
 #[cfg(test)]
@@ -402,7 +553,10 @@ mod tests {
 
         if let Directive::Use(use_dir) = &directives[0] {
             assert_eq!(use_dir.path, "variables");
-            assert_eq!(use_dir.namespace, Some(Namespace::Named("vars".to_string())));
+            assert_eq!(
+                use_dir.namespace,
+                Some(Namespace::Named("vars".to_string()))
+            );
         } else {
             panic!("Expected Use directive");
         }
@@ -433,6 +587,24 @@ mod tests {
     }
 
     #[test]
+    fn parse_use_with_nested_configuration_and_namespace() {
+        let input =
+            "@use \"theme\" as t with (\n  $map: (a: 1, b: \")\"),\n  $x: 2\n);\n@use \"next\";";
+        let directives = Parser::parse(input).unwrap();
+        assert_eq!(directives.len(), 2);
+
+        if let Directive::Use(use_dir) = &directives[0] {
+            assert!(use_dir.configured);
+            assert_eq!(use_dir.namespace, Some(Namespace::Named("t".to_string())));
+        } else {
+            panic!("Expected Use directive");
+        }
+
+        // Line tracking must survive the multi-line configuration map.
+        assert_eq!(directives[1].location(), &Location::new(5, 1));
+    }
+
+    #[test]
     fn parse_simple_forward() {
         let input = r#"@forward "mixins";"#;
         let directives = Parser::parse(input).unwrap();
@@ -454,6 +626,23 @@ mod tests {
 
         if let Directive::Forward(fwd_dir) = &directives[0] {
             assert_eq!(fwd_dir.prefix, Some("fn-".to_string()));
+        } else {
+            panic!("Expected Forward directive");
+        }
+    }
+
+    #[test]
+    fn parse_forward_with_prefix_visibility_and_config() {
+        let input = r#"@forward "lib" as lib-* hide $a, b with ($c: 1 !default);"#;
+        let directives = Parser::parse(input).unwrap();
+        assert_eq!(directives.len(), 1);
+
+        if let Directive::Forward(fwd_dir) = &directives[0] {
+            assert_eq!(fwd_dir.prefix, Some("lib-".to_string()));
+            assert_eq!(
+                fwd_dir.visibility,
+                Visibility::Hide(vec!["$a".to_string(), "b".to_string()])
+            );
         } else {
             panic!("Expected Forward directive");
         }
@@ -518,6 +707,26 @@ mod tests {
     }
 
     #[test]
+    fn parse_import_skips_plain_css() {
+        let input = r#"
+@import url("https://fonts.googleapis.com/css?family=Roboto");
+@import "theme.css";
+@import "https://cdn.example.com/x";
+@import "print" print;
+@import "real", "skip.css";
+"#;
+        let directives = Parser::parse(input).unwrap();
+        assert_eq!(directives.len(), 1);
+
+        if let Directive::Import(imp_dir) = &directives[0] {
+            assert_eq!(imp_dir.paths, vec!["real".to_string()]);
+            assert_eq!(imp_dir.location.line, 6);
+        } else {
+            panic!("Expected Import directive");
+        }
+    }
+
+    #[test]
     fn parse_mixed_directives() {
         let input = r#"
 @use "variables" as vars;
@@ -533,16 +742,25 @@ mod tests {
     }
 
     #[test]
+    fn parse_indented_syntax_without_semicolons() {
+        let input = "@use \"a\"\n@forward \"b\"\n@import \"c\"\n";
+        let directives = Parser::parse(input).unwrap();
+        assert_eq!(directives.len(), 3);
+        assert_eq!(directives[2].location().line, 3);
+    }
+
+    #[test]
     fn parse_with_comments() {
         let input = r#"
-// This is a comment
+// This is a comment @use "commented";
 @use "variables";
 /* Multi-line
-   comment */
+   comment @use "nope"; */
 @forward "mixins";
 "#;
         let directives = Parser::parse(input).unwrap();
         assert_eq!(directives.len(), 2);
+        assert_eq!(directives[1].location().line, 6);
     }
 
     #[test]
@@ -552,10 +770,18 @@ mod tests {
 @mixin foo { }
 @media screen { }
 @keyframes slide { }
+@include user-styles;
 @forward "mixins";
 "#;
         let directives = Parser::parse(input).unwrap();
         assert_eq!(directives.len(), 2);
+    }
+
+    #[test]
+    fn parse_requires_keyword_boundary() {
+        let input = r#"@user "x"; @forwarded "y"; @imports "z";"#;
+        let directives = Parser::parse(input).unwrap();
+        assert!(directives.is_empty());
     }
 
     #[test]
@@ -568,6 +794,13 @@ mod tests {
         assert_eq!(directives[0].location().column, 1);
         assert_eq!(directives[1].location().line, 2);
         assert_eq!(directives[1].location().column, 1);
+    }
+
+    #[test]
+    fn parse_column_counts_characters() {
+        let input = "/* é */ @use \"a\";";
+        let directives = Parser::parse(input).unwrap();
+        assert_eq!(directives[0].location().column, 9);
     }
 
     #[test]
@@ -586,7 +819,7 @@ mod tests {
     fn parse_string_in_selector_ignored() {
         let input = r#"
 .foo[data-attr="@use fake"] {
-    color: red;
+    content: 'it\'s @import "x"';
 }
 @use "real";
 "#;
@@ -598,5 +831,28 @@ mod tests {
         } else {
             panic!("Expected Use directive");
         }
+    }
+
+    #[test]
+    fn parse_unquoted_url_with_double_slash() {
+        let input = ".a { background: url(http://x.test/a.png); } @use \"after\";";
+        let directives = Parser::parse(input).unwrap();
+        assert_eq!(directives.len(), 1);
+    }
+
+    #[test]
+    fn parse_unterminated_string_does_not_swallow_file() {
+        let input = ".a { content: \"oops\n}\n@use \"ok\";";
+        let directives = Parser::parse(input).unwrap();
+        assert_eq!(directives.len(), 1);
+        assert_eq!(directives[0].location().line, 3);
+    }
+
+    #[test]
+    fn parse_invalid_utf8_is_tolerated() {
+        let mut input = b"@use \"a\";\n/* \xFF\xFE */\n@use \"b\";".to_vec();
+        input.push(b'\n');
+        let directives = Parser::parse_bytes(&input);
+        assert_eq!(directives.len(), 2);
     }
 }

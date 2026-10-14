@@ -193,10 +193,7 @@ fn parse_ignores_comments() {
     let directives = Parser::parse(input).unwrap();
     assert_eq!(directives.len(), 3);
 
-    let paths: Vec<&str> = directives
-        .iter()
-        .flat_map(|d| d.paths())
-        .collect();
+    let paths: Vec<&str> = directives.iter().flat_map(|d| d.paths()).collect();
     assert_eq!(paths, vec!["a", "b", "c"]);
 }
 
@@ -215,10 +212,7 @@ fn parse_ignores_strings_in_selectors() {
     let directives = Parser::parse(input).unwrap();
     assert_eq!(directives.len(), 2);
 
-    let paths: Vec<&str> = directives
-        .iter()
-        .flat_map(|d| d.paths())
-        .collect();
+    let paths: Vec<&str> = directives.iter().flat_map(|d| d.paths()).collect();
     assert_eq!(paths, vec!["real", "also-real"]);
 }
 
