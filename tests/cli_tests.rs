@@ -232,17 +232,31 @@ fn stderr(output: &Output) -> String {
 fn untrusted_names_cannot_inject_terminal_or_workflow_commands() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
-    fs::write(root.join("main.scss"), "@use \"z\u{1b}]52;c;cHduZWQ=\u{7}\";\n").unwrap();
-    fs::write(root.join("_y\n::error file=main.scss,line=1::FORGED\n.scss"), "").unwrap();
+    fs::write(
+        root.join("main.scss"),
+        "@use \"z\u{1b}]52;c;cHduZWQ=\u{7}\";\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("_y\n::error file=main.scss,line=1::FORGED\n.scss"),
+        "",
+    )
+    .unwrap();
 
-    let output = run(root, &["check", "main.scss", "--no-orphans", "--no-unresolved"]);
+    let output = run(
+        root,
+        &["check", "main.scss", "--no-orphans", "--no-unresolved"],
+    );
     assert_eq!(output.status.code(), Some(1));
     let text = stderr(&output);
     assert!(!text.contains('\u{1b}'), "{text}");
     assert!(!text.lines().any(|line| line.starts_with("::")), "{text}");
     assert!(text.contains("\\u{1b}]52"), "{text}");
 
-    let github = run(root, &["check", "main.scss", "--no-orphans", "--format", "github"]);
+    let github = run(
+        root,
+        &["check", "main.scss", "--no-orphans", "--format", "github"],
+    );
     assert_eq!(stdout(&github).lines().count(), 1);
 }
 
@@ -260,7 +274,10 @@ fn init_round_trips_hostile_names_and_honours_config_flag() {
     let analyze = run(root, &["--config", "custom.toml", "analyze"]);
     assert!(analyze.status.success(), "{}", stderr(&analyze));
     let json: serde_json::Value = serde_json::from_slice(&analyze.stdout).unwrap();
-    assert_eq!(json["metadata"]["entry_points"], serde_json::json!(["main.scss", "we\"ird.scss"]));
+    assert_eq!(
+        json["metadata"]["entry_points"],
+        serde_json::json!(["main.scss", "we\"ird.scss"])
+    );
 }
 
 #[test]
@@ -275,8 +292,17 @@ fn invalid_roots_and_config_keys_are_usage_errors() {
         .unwrap();
     assert_eq!(output.status.code(), Some(2));
 
-    fs::write(temp.path().join(".sass-dep.toml"), "[thresholds]\nhigh_fan_ins = 0\n").unwrap();
-    assert_eq!(run(temp.path(), &["analyze", "src/main.scss"]).status.code(), Some(2));
+    fs::write(
+        temp.path().join(".sass-dep.toml"),
+        "[thresholds]\nhigh_fan_ins = 0\n",
+    )
+    .unwrap();
+    assert_eq!(
+        run(temp.path(), &["analyze", "src/main.scss"])
+            .status
+            .code(),
+        Some(2)
+    );
 }
 
 #[test]
@@ -289,7 +315,10 @@ fn entry_points_may_be_relative_to_the_working_directory() {
         .unwrap();
     assert!(output.status.success(), "{}", stderr(&output));
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(json["metadata"]["entry_points"], serde_json::json!(["main.scss"]));
+    assert_eq!(
+        json["metadata"]["entry_points"],
+        serde_json::json!(["main.scss"])
+    );
 }
 
 #[cfg(unix)]
@@ -317,7 +346,10 @@ fn closed_stdout_exits_quietly() {
 #[test]
 fn write_failures_are_io_errors() {
     let temp = project();
-    let output = run(temp.path(), &["analyze", "src/main.scss", "-o", "/dev/full"]);
+    let output = run(
+        temp.path(),
+        &["analyze", "src/main.scss", "-o", "/dev/full"],
+    );
     if cfg!(target_os = "linux") {
         assert_eq!(output.status.code(), Some(3), "{}", stderr(&output));
     }
