@@ -11,7 +11,7 @@
 
 use std::collections::VecDeque;
 
-use petgraph::algo::tarjan_scc;
+use petgraph::algo::kosaraju_scc;
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::Direction;
 
@@ -86,11 +86,11 @@ pub fn calculate_depths(graph: &mut DependencyGraph) {
 ///
 /// Files inside a cycle reach themselves, so they are counted in their own totals.
 pub fn calculate_transitive_deps(graph: &mut DependencyGraph) {
-    let sccs = tarjan_scc(graph.inner());
+    let sccs = kosaraju_scc(graph.inner());
     calculate_transitive_from_sccs(graph, &sccs);
 }
 
-/// Computes transitive metrics from precomputed SCCs (in Tarjan order).
+/// Computes transitive metrics from precomputed SCCs (in Kosaraju order: reverse topological).
 pub(crate) fn calculate_transitive_from_sccs(graph: &mut DependencyGraph, sccs: &[Vec<NodeIndex>]) {
     let inner = graph.inner();
     let condensation = Condensation::new(inner, sccs);
@@ -133,7 +133,7 @@ impl Condensation {
 
     /// Counts, per component, the nodes reachable in `direction`.
     ///
-    /// Tarjan emits SCCs in reverse topological order, so for outgoing
+    /// Kosaraju emits SCCs in reverse topological order, so for outgoing
     /// reachability every successor component is finalized before its
     /// predecessors; incoming reachability walks the list backwards.
     fn reach_counts(
