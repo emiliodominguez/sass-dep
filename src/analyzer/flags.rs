@@ -11,7 +11,7 @@ use crate::graph::{DependencyGraph, NodeFlag};
 
 /// Thresholds for flag assignment.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct FlagThresholds {
     /// Fan-in at or above which a node gets the `HighFanIn` flag.
     pub high_fan_in: usize,

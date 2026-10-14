@@ -23,8 +23,10 @@ fn main() -> ExitCode {
 
     match run(cli) {
         Ok(code) => ExitCode::from(code),
+        // `sass-dep analyze | head`: the reader went away, nothing to report.
+        Err(error) if commands::is_broken_pipe(&error) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("error: {error:#}");
+            eprintln!("error: {}", commands::display_safe(&format!("{error:#}")));
             ExitCode::from(commands::exit_code(&error) as u8)
         }
     }

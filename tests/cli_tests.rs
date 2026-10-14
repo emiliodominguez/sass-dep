@@ -222,3 +222,103 @@ fn export_roundtrip_from_stdin() {
     assert!(output.status.success());
     assert!(stdout(&output).contains("classDef entry"));
 }
+
+fn stderr(output: &Output) -> String {
+    String::from_utf8_lossy(&output.stderr).into_owned()
+}
+
+#[cfg(unix)]
+#[test]
+fn untrusted_names_cannot_inject_terminal_or_workflow_commands() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    fs::write(root.join("main.scss"), "@use \"z\u{1b}]52;c;cHduZWQ=\u{7}\";\n").unwrap();
+    fs::write(root.join("_y\n::error file=main.scss,line=1::FORGED\n.scss"), "").unwrap();
+
+    let output = run(root, &["check", "main.scss", "--no-orphans", "--no-unresolved"]);
+    assert_eq!(output.status.code(), Some(1));
+    let text = stderr(&output);
+    assert!(!text.contains('\u{1b}'), "{text}");
+    assert!(!text.lines().any(|line| line.starts_with("::")), "{text}");
+    assert!(text.contains("\\u{1b}]52"), "{text}");
+
+    let github = run(root, &["check", "main.scss", "--no-orphans", "--format", "github"]);
+    assert_eq!(stdout(&github).lines().count(), 1);
+}
+
+#[test]
+fn init_round_trips_hostile_names_and_honours_config_flag() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    fs::write(root.join("main.scss"), "").unwrap();
+    fs::write(root.join("we\"ird.scss"), "").unwrap();
+
+    let output = run(root, &["--config", "custom.toml", "init"]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(!root.join(".sass-dep.toml").exists());
+
+    let analyze = run(root, &["--config", "custom.toml", "analyze"]);
+    assert!(analyze.status.success(), "{}", stderr(&analyze));
+    let json: serde_json::Value = serde_json::from_slice(&analyze.stdout).unwrap();
+    assert_eq!(json["metadata"]["entry_points"], serde_json::json!(["main.scss", "we\"ird.scss"]));
+}
+
+#[test]
+fn invalid_roots_and_config_keys_are_usage_errors() {
+    let temp = project();
+    let file = temp.path().join("src/main.scss");
+    let output = Command::new(env!("CARGO_BIN_EXE_sass-dep"))
+        .arg("--root")
+        .arg(&file)
+        .args(["analyze", "x.scss"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+
+    fs::write(temp.path().join(".sass-dep.toml"), "[thresholds]\nhigh_fan_ins = 0\n").unwrap();
+    assert_eq!(run(temp.path(), &["analyze", "src/main.scss"]).status.code(), Some(2));
+}
+
+#[test]
+fn entry_points_may_be_relative_to_the_working_directory() {
+    let temp = project();
+    let output = Command::new(env!("CARGO_BIN_EXE_sass-dep"))
+        .current_dir(temp.path())
+        .args(["--root", "src", "analyze", "src/main.scss"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", stderr(&output));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["metadata"]["entry_points"], serde_json::json!(["main.scss"]));
+}
+
+#[cfg(unix)]
+#[test]
+fn closed_stdout_exits_quietly() {
+    // ~3000 nodes produce far more JSON than a pipe buffer holds, so the
+    // writer is guaranteed to hit EPIPE after `head` exits.
+    let temp = project();
+    for i in 0..3000 {
+        fs::write(temp.path().join(format!("src/_extra{i}.scss")), "").unwrap();
+    }
+    let output = Command::new("bash")
+        .arg("-c")
+        .arg(format!(
+            "'{}' --root '{}' analyze src/main.scss --include-orphans | head -c 1 >/dev/null; echo ${{PIPESTATUS[0]}}",
+            env!("CARGO_BIN_EXE_sass-dep"),
+            temp.path().display()
+        ))
+        .output()
+        .unwrap();
+    assert_eq!(stdout(&output).trim(), "0");
+    assert!(stderr(&output).is_empty(), "{}", stderr(&output));
+}
+
+#[test]
+fn write_failures_are_io_errors() {
+    let temp = project();
+    let output = run(temp.path(), &["analyze", "src/main.scss", "-o", "/dev/full"]);
+    if cfg!(target_os = "linux") {
+        assert_eq!(output.status.code(), Some(3), "{}", stderr(&output));
+    }
+}

@@ -39,7 +39,7 @@ pub enum ParseError {
     },
 
     /// IO error while reading file.
-    #[error("IO error: {0}")]
+    #[error(transparent)]
     Io(#[from] std::io::Error),
 }
 

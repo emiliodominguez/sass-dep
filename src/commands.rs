@@ -4,6 +4,7 @@
 //! commands share the same pipeline: load the project ([`Project::open`]),
 //! build and analyze the graph ([`Project::build`]), then report.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io::{self, BufWriter, Read, Write};
@@ -20,10 +21,10 @@ use thiserror::Error;
 use crate::analyzer::{Analyzer, AnalyzerConfig};
 use crate::cli::{CheckFormat, ExportFormat, GraphArgs, OutputFormat, ReportFormat};
 use crate::config::{starter_config, CompiledRule, Config, ConfigError, DEFAULT_CONFIG_FILE};
-use crate::graph::{DependencyGraph, DirectiveType, NodeFlag};
+use crate::graph::{file_id, DependencyGraph, DirectiveType, NodeFlag};
 use crate::output::{OutputSchema, Serializer};
 use crate::parser::ParseError;
-use crate::resolver::{Resolver, ResolverConfig};
+use crate::resolver::{normalize_lexically, Resolver, ResolverConfig};
 
 /// Maximum number of unresolved-import warnings printed without `-v`.
 const MAX_UNRESOLVED_WARNINGS: usize = 10;
@@ -45,14 +46,67 @@ pub fn exit_code(error: &anyhow::Error) -> i32 {
         if cause.is::<UsageError>() || cause.is::<ConfigError>() {
             return 2;
         }
+        if cause.is::<io::Error>() || matches!(cause.downcast_ref(), Some(ParseError::Io(_))) {
+            return 3;
+        }
+        if cause
+            .downcast_ref::<serde_json::Error>()
+            .is_some_and(serde_json::Error::is_io)
+        {
+            return 3;
+        }
         if cause.is::<ParseError>() {
             return 4;
         }
-        if cause.is::<io::Error>() {
-            return 3;
-        }
     }
     2
+}
+
+/// Returns `true` if the error is a closed pipe (e.g. `sass-dep analyze | head`).
+///
+/// The CLI then exits quietly instead of reporting an error.
+pub fn is_broken_pipe(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<io::Error>()
+            .map(io::Error::kind)
+            .or_else(|| {
+                cause
+                    .downcast_ref::<serde_json::Error>()
+                    .and_then(|e| e.io_error_kind())
+            })
+            == Some(io::ErrorKind::BrokenPipe)
+    })
+}
+
+/// Escapes characters that could manipulate a terminal or log viewer.
+///
+/// File names and import targets come from the analyzed project, so they
+/// are untrusted: ANSI/OSC escape sequences could rewrite the terminal
+/// (titles, clipboard), a newline could forge a GitHub Actions workflow
+/// command such as `::error` or `::add-mask::`, and bidirectional overrides
+/// could make one file name look like another. Control characters and bidi
+/// formatting characters are rendered as visible escapes; tabs are kept.
+pub fn display_safe(text: &str) -> Cow<'_, str> {
+    fn is_unsafe(c: char) -> bool {
+        (c.is_control() && c != '\t')
+            || matches!(c, '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+    }
+
+    if !text.chars().any(is_unsafe) {
+        return Cow::Borrowed(text);
+    }
+
+    let mut out = String::with_capacity(text.len() + 8);
+    for c in text.chars() {
+        match c {
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            c if is_unsafe(c) => out.push_str(&format!("\\u{{{:x}}}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    Cow::Owned(out)
 }
 
 /// Options shared by every command.
@@ -81,21 +135,21 @@ impl Log {
     /// Prints a warning unless `--quiet`.
     fn warn(&self, message: impl AsRef<str>) {
         if !self.quiet {
-            eprintln!("warning: {}", message.as_ref());
+            eprintln!("warning: {}", display_safe(message.as_ref()));
         }
     }
 
     /// Prints a message at verbosity `level` or above.
     fn info(&self, level: u8, message: impl AsRef<str>) {
         if !self.quiet && self.verbose >= level {
-            eprintln!("{}", message.as_ref());
+            eprintln!("{}", display_safe(message.as_ref()));
         }
     }
 
     /// Prints a status message unless `--quiet`.
     fn status(&self, message: impl AsRef<str>) {
         if !self.quiet {
-            eprintln!("{}", message.as_ref());
+            eprintln!("{}", display_safe(message.as_ref()));
         }
     }
 }
@@ -121,6 +175,11 @@ impl Project {
                 global.root.display()
             )
         })?;
+        if !root.is_dir() {
+            return Err(
+                UsageError(format!("--root must be a directory: {}", root.display())).into(),
+            );
+        }
         let log = Log {
             quiet: global.quiet,
             verbose: global.verbose,
@@ -178,7 +237,27 @@ impl Project {
             ))
             .into());
         }
-        Ok(entries.iter().map(|e| absolutize(&self.root, e)).collect())
+        let from_cli = !cli.is_empty();
+        let cwd = std::env::current_dir().ok();
+        Ok(entries
+            .iter()
+            .map(|entry| {
+                let in_root = absolutize(&self.root, entry);
+                // CLI paths may also be spelled relative to the working
+                // directory (`--root app analyze app/main.scss`).
+                match &cwd {
+                    Some(cwd)
+                        if from_cli
+                            && entry.is_relative()
+                            && !in_root.exists()
+                            && cwd.join(entry).exists() =>
+                    {
+                        cwd.join(entry)
+                    }
+                    _ => in_root,
+                }
+            })
+            .collect())
     }
 
     /// Builds and analyzes the dependency graph.
@@ -250,25 +329,29 @@ impl Project {
     }
 
     /// Maps a user-supplied path or file ID to a node ID in `graph`.
+    ///
+    /// Tries, in order: the argument as a literal ID, then as a path
+    /// relative to the root and to the working directory (lexically, like
+    /// the graph's own IDs), then the canonical form of those paths.
     fn file_id(&self, graph: &DependencyGraph, arg: &Path) -> Option<String> {
-        let as_id = arg.to_string_lossy().replace('\\', "/");
-        if graph.get_node(&as_id).is_some() {
-            return Some(as_id);
+        let literal = arg.to_string_lossy();
+        if graph.get_node(&literal).is_some() {
+            return Some(literal.into_owned());
         }
 
-        let candidates = [
-            absolutize(&self.root, arg),
-            std::env::current_dir().ok()?.join(arg),
-        ];
-        candidates.iter().find_map(|candidate| {
-            let canonical = dunce::canonicalize(candidate).ok()?;
-            let id = canonical
-                .strip_prefix(&self.root)
-                .unwrap_or(&canonical)
-                .to_string_lossy()
-                .replace('\\', "/");
-            graph.get_node(&id).map(|_| id)
-        })
+        let mut candidates = vec![absolutize(&self.root, arg)];
+        if let Ok(cwd) = std::env::current_dir() {
+            candidates.push(cwd.join(arg));
+        }
+
+        let lexical = candidates.iter().map(|c| normalize_lexically(c));
+        let canonical = candidates
+            .iter()
+            .filter_map(|c| dunce::canonicalize(c).ok());
+        lexical
+            .chain(canonical)
+            .map(|path| file_id(&path, &self.root))
+            .find(|id| graph.get_node(id).is_some())
     }
 }
 
@@ -705,7 +788,11 @@ pub fn check(global: &GlobalOptions, opts: CheckOptions) -> Result<Vec<Violation
                     Some((line, column)) => format!(" ({file}:{line}:{column})"),
                     None => String::new(),
                 };
-                eprintln!("error[{}]: {}{at}", violation.kind(), violation.message());
+                eprintln!(
+                    "error[{}]: {}",
+                    violation.kind(),
+                    display_safe(&format!("{}{at}", violation.message()))
+                );
             }
             if violations.is_empty() {
                 project
@@ -762,7 +849,7 @@ pub fn check(global: &GlobalOptions, opts: CheckOptions) -> Result<Vec<Violation
 
 /// Escapes workflow command data.
 fn github_data(value: &str) -> String {
-    value
+    display_safe(value)
         .replace('%', "%25")
         .replace('\r', "%0D")
         .replace('\n', "%0A")
@@ -917,7 +1004,11 @@ pub fn why(
         }
         ReportFormat::Text => with_output(None, |w| {
             match &chain {
-                None => writeln!(w, "{id} is not reachable from any entry point (orphan).")?,
+                None => writeln!(
+                    w,
+                    "{} is not reachable from any entry point (orphan).",
+                    display_safe(&id)
+                )?,
                 Some(steps) => {
                     for (i, step) in steps.iter().enumerate() {
                         match (step.directive_type, step.line) {
@@ -925,9 +1016,9 @@ pub fn why(
                                 w,
                                 "{}└─ @{directive} (line {line}) → {}",
                                 "   ".repeat(i - 1),
-                                step.file
+                                display_safe(&step.file)
                             )?,
-                            _ => writeln!(w, "{}", step.file)?,
+                            _ => writeln!(w, "{}", display_safe(&step.file))?,
                         }
                     }
                 }
@@ -1023,15 +1114,15 @@ pub fn impact(
             ReportFormat::Text => {
                 writeln!(w, "Changed ({}):", report.changed.len())?;
                 for id in &report.changed {
-                    writeln!(w, "  {id}")?;
+                    writeln!(w, "  {}", display_safe(id))?;
                 }
                 writeln!(w, "Affected files ({}):", report.affected.len())?;
                 for id in &report.affected {
-                    writeln!(w, "  {id}")?;
+                    writeln!(w, "  {}", display_safe(id))?;
                 }
                 writeln!(w, "Affected entry points ({}):", report.entry_points.len())?;
                 for id in &report.entry_points {
-                    writeln!(w, "  {id}")?;
+                    writeln!(w, "  {}", display_safe(id))?;
                 }
             }
         }
@@ -1061,7 +1152,13 @@ pub fn init(global: &GlobalOptions, force: bool) -> Result<PathBuf> {
             global.root.display()
         )
     })?;
-    let path = root.join(DEFAULT_CONFIG_FILE);
+    if !root.is_dir() {
+        return Err(UsageError(format!("--root must be a directory: {}", root.display())).into());
+    }
+    let path = match &global.config {
+        Some(config) => absolutize(&root, config),
+        None => root.join(DEFAULT_CONFIG_FILE),
+    };
     if path.exists() && !force {
         return Err(UsageError(format!(
             "{} already exists (use --force to overwrite)",
@@ -1082,16 +1179,20 @@ pub fn init(global: &GlobalOptions, force: bool) -> Result<PathBuf> {
     graph.discover_orphans(&root, &resolver)?;
     Analyzer::default().analyze(&mut graph);
 
+    // Write real root-relative paths (IDs may contain escapes); names that
+    // are not valid UTF-8 cannot be expressed in TOML and are skipped.
     let mut entries: Vec<String> = graph
         .nodes()
-        .filter(|(id, node)| {
-            let is_partial = id
-                .rsplit('/')
-                .next()
+        .filter(|(_, node)| node.metrics.fan_in == 0)
+        .filter_map(|(_, node)| {
+            let relative = node.absolute_path.strip_prefix(&root).ok()?;
+            let is_partial = relative
+                .file_name()
+                .and_then(|name| name.to_str())
                 .is_some_and(|name| name.starts_with('_'));
-            !is_partial && node.metrics.fan_in == 0
+            let text = relative.to_str()?;
+            (!is_partial).then(|| text.replace(std::path::MAIN_SEPARATOR, "/"))
         })
-        .map(|(id, _)| id.clone())
         .collect();
     entries.sort_unstable();
 
@@ -1123,7 +1224,8 @@ mod tests {
     #[test]
     fn github_escaping() {
         assert_eq!(github_property("a:b,c"), "a%3Ab%2Cc");
-        assert_eq!(github_data("50%\nx"), "50%25%0Ax");
+        assert_eq!(github_data("50%\nx"), "50%25\\nx");
+        assert_eq!(github_data("a\u{1b}]0;x\u{7}"), "a\\u{1b}]0;x\\u{7}");
     }
 
     #[test]

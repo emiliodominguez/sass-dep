@@ -32,6 +32,7 @@
 mod builder;
 mod node;
 
+pub(crate) use builder::file_id;
 pub use builder::DependencyGraph;
 pub use node::{
     DependencyEdge, DirectiveType, EdgeMeta, FileNode, NodeFlag, NodeMetrics, UnresolvedImport,

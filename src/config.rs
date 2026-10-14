@@ -249,6 +249,26 @@ fn one_or_many<'de, D: Deserializer<'de>>(
     })
 }
 
+/// Encodes `value` as a TOML basic string, escaping quotes, backslashes and
+/// control characters so a file name can never break out of the string.
+fn toml_string(value: &str) -> String {
+    let mut out = String::with_capacity(value.len() + 2);
+    out.push('"');
+    for c in value.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c.is_control() => out.push_str(&format!("\\u{:04X}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
 /// Starter configuration written by `sass-dep init`.
 pub fn starter_config(entry_points: &[String]) -> String {
     let entries = if entry_points.is_empty() {
@@ -256,7 +276,7 @@ pub fn starter_config(entry_points: &[String]) -> String {
     } else {
         let list: Vec<String> = entry_points
             .iter()
-            .map(|e| format!("    \"{e}\","))
+            .map(|e| format!("    {},", toml_string(e)))
             .collect();
         format!("entry_points = [\n{}\n]", list.join("\n"))
     };
@@ -351,6 +371,23 @@ allow = ["src/pages/_tokens.scss"]
         assert!(Config::parse("entry_point = []").is_err());
         assert!(Config::parse("exclude = [\"src/[\"]").is_err());
         assert!(Config::parse("[[rules]]\nfrom = []\ndeny = \"x\"\n").is_err());
+    }
+
+    #[test]
+    fn starter_config_escapes_hostile_names() {
+        let names = vec![
+            "we\"ird.scss".to_string(),
+            "z\",]\nextensions = [\"sass\", \"x.scss".to_string(),
+            "back\\slash\t\u{1b}[31m.scss".to_string(),
+        ];
+        let config = Config::parse(&starter_config(&names)).unwrap();
+        let parsed: Vec<String> = config
+            .entry_points
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(parsed, names);
+        assert_eq!(config.extensions, None);
     }
 
     #[test]
