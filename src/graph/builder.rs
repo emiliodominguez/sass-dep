@@ -5,19 +5,25 @@
 //! `rayon`), then the results are merged into the graph sequentially in
 //! frontier order. Each file is therefore parsed exactly once, and the
 //! resulting node/edge order is deterministic regardless of thread timing.
+//!
+//! Files are identified by their **lexical** absolute path (like Dart Sass),
+//! so a file reached through a symlink resolves its own relative imports
+//! from the link's location. Within one file, repeated `(target, kind)`
+//! pairs are resolved once, and edges are deduplicated in O(1).
 
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use globset::GlobSet;
 use indexmap::{IndexMap, IndexSet};
-use petgraph::graph::DiGraph;
+use petgraph::graph::{DiGraph, EdgeIndex};
 use rayon::prelude::*;
 
 use super::node::{DependencyEdge, DirectiveType, EdgeMeta, FileNode, NodeFlag, UnresolvedImport};
 use super::NodeId;
-use crate::parser::{Directive, Location, Namespace, Parser};
-use crate::resolver::{ResolveKind, Resolver};
+use crate::parser::{Directive, Location, Namespace, ParseError, Parser, Syntax};
+use crate::resolver::{normalize_lexically, ResolveError, ResolveKind, Resolver};
 
 /// A dependency graph representing SCSS file relationships.
 ///
@@ -36,12 +42,15 @@ pub struct DependencyGraph {
     cycles: Vec<Vec<String>>,
     /// Directives whose targets could not be resolved.
     unresolved: Vec<UnresolvedImport>,
+    /// Edge lookup by endpoints, for O(1) deduplication.
+    edge_lookup: HashMap<(NodeId, NodeId), EdgeIndex>,
 }
 
 /// A dependency discovered while scanning a file.
 struct ScannedDependency {
     target: String,
-    resolved: Option<PathBuf>,
+    /// The resolved file, or why it could not be resolved (`None`: not found).
+    resolved: Result<PathBuf, Option<Vec<PathBuf>>>,
     directive_type: DirectiveType,
     location: Location,
     meta: EdgeMeta,
@@ -57,6 +66,7 @@ impl DependencyGraph {
             scheduled: Vec::new(),
             cycles: Vec::new(),
             unresolved: Vec::new(),
+            edge_lookup: HashMap::new(),
         }
     }
 
@@ -112,10 +122,26 @@ impl DependencyGraph {
 
     /// Registers an entry point node and flags it.
     fn add_entry(&mut self, entry: &Path, root: &Path) -> Result<NodeId> {
-        let entry = dunce::canonicalize(entry)
+        let metadata = std::fs::metadata(entry)
             .with_context(|| format!("Failed to resolve entry point: {}", entry.display()))?;
-        if !entry.is_file() {
+        if !metadata.is_file() {
             anyhow::bail!("Entry point is not a file: {}", entry.display());
+        }
+
+        let absolute = if entry.is_absolute() {
+            entry.to_path_buf()
+        } else {
+            std::env::current_dir()?.join(entry)
+        };
+        let mut entry = normalize_lexically(&absolute);
+        // An absolute path spelled through a symlinked prefix (e.g. macOS
+        // `/tmp` -> `/private/tmp`) would otherwise get an absolute ID.
+        if !entry.starts_with(dunce::simplified(root)) {
+            if let Ok(canonical) = dunce::canonicalize(&entry) {
+                if canonical.starts_with(dunce::simplified(root)) {
+                    entry = canonical;
+                }
+            }
         }
 
         let idx = self.add_file(entry, root);
@@ -142,27 +168,45 @@ impl DependencyGraph {
 
             for (&from_idx, scan) in frontier.iter().zip(scans) {
                 for dependency in scan? {
-                    let Some(resolved) = dependency.resolved else {
-                        self.unresolved.push(UnresolvedImport {
-                            from: self.graph[from_idx].id.clone(),
-                            target: dependency.target,
-                            directive_type: dependency.directive_type,
-                            location: dependency.location,
-                        });
-                        continue;
+                    let resolved = match dependency.resolved {
+                        Ok(resolved) => resolved,
+                        Err(ambiguous) => {
+                            let reason = ambiguous.map(|candidates| {
+                                let names: Vec<String> =
+                                    candidates.iter().map(|c| file_id(c, root)).collect();
+                                format!("ambiguous: {}", names.join(", "))
+                            });
+                            self.unresolved.push(UnresolvedImport {
+                                from: self.graph[from_idx].id.clone(),
+                                target: dependency.target,
+                                directive_type: dependency.directive_type,
+                                location: dependency.location,
+                                reason,
+                            });
+                            continue;
+                        }
                     };
 
                     let to_idx = self.add_file(resolved, root);
-                    if self.graph.find_edge(from_idx, to_idx).is_none() {
-                        self.graph.add_edge(
-                            from_idx,
-                            to_idx,
-                            DependencyEdge::with_meta(
-                                dependency.directive_type,
-                                dependency.location,
-                                dependency.meta,
-                            ),
-                        );
+                    let edge = DependencyEdge::with_meta(
+                        dependency.directive_type,
+                        dependency.location,
+                        dependency.meta,
+                    );
+                    match self.edge_lookup.get(&(from_idx, to_idx)) {
+                        None => {
+                            let index = self.graph.add_edge(from_idx, to_idx, edge);
+                            self.edge_lookup.insert((from_idx, to_idx), index);
+                        }
+                        // One edge per pair; a legacy @import always wins so
+                        // `@use "x"; @import "x";` cannot hide it from checks.
+                        Some(&index)
+                            if edge.directive_type == DirectiveType::Import
+                                && self.graph[index].directive_type != DirectiveType::Import =>
+                        {
+                            self.graph[index] = edge;
+                        }
+                        Some(_) => {}
                     }
 
                     if !std::mem::replace(&mut self.scheduled[to_idx.index()], true) {
@@ -236,9 +280,7 @@ impl DependencyGraph {
 
         let mut frontier = Vec::new();
         for path in found {
-            let Ok(path) = dunce::canonicalize(path) else {
-                continue;
-            };
+            let path = normalize_lexically(&path);
             let id = file_id(&path, root);
             if self.node_index.contains_key(&id) || exclude.is_match(&id) {
                 continue;
@@ -339,25 +381,62 @@ impl Default for DependencyGraph {
 
 /// Computes the file ID (root-relative path with `/` separators).
 ///
-/// Files outside `root` (e.g. in an external load path) keep their absolute path.
-fn file_id(path: &Path, root: &Path) -> String {
-    path.strip_prefix(dunce::simplified(root))
-        .unwrap_or(path)
-        .to_string_lossy()
-        .replace('\\', "/")
+/// Files outside `root` (e.g. in an external load path) keep their absolute
+/// path. IDs are injective: on Unix a literal backslash is written as `\\`
+/// and bytes that are not valid UTF-8 as `\xHH`, so distinct files can never
+/// share an ID.
+pub(crate) fn file_id(path: &Path, root: &Path) -> String {
+    let relative = path.strip_prefix(dunce::simplified(root)).unwrap_or(path);
+
+    #[cfg(windows)]
+    {
+        relative.to_string_lossy().replace('\\', "/")
+    }
+
+    #[cfg(not(windows))]
+    {
+        use std::os::unix::ffi::OsStrExt;
+
+        let mut id = String::new();
+        for chunk in relative.as_os_str().as_bytes().utf8_chunks() {
+            for ch in chunk.valid().chars() {
+                if ch == '\\' {
+                    id.push_str("\\\\");
+                } else {
+                    id.push(ch);
+                }
+            }
+            for byte in chunk.invalid() {
+                id.push_str(&format!("\\x{byte:02X}"));
+            }
+        }
+        id
+    }
 }
 
 /// Reads, parses and resolves the dependencies of one file.
 ///
 /// This is the unit of parallel work in [`DependencyGraph::expand`].
+/// Directives are streamed from the scanner and repeated `(target, kind)`
+/// pairs are resolved once, so memory is bounded by the number of distinct
+/// targets rather than the number of directives. Plain `.css` files have
+/// no Sass dependencies.
 fn scan_file(path: &Path, resolver: &Resolver) -> Result<Vec<ScannedDependency>> {
-    let directives =
-        Parser::parse_file(path).with_context(|| format!("Failed to read: {}", path.display()))?;
+    let syntax = Syntax::from_path(path);
+    if syntax == Syntax::Css {
+        return Ok(Vec::new());
+    }
+
+    let content = std::fs::read(path)
+        .map_err(ParseError::Io)
+        .with_context(|| format!("Failed to read: {}", path.display()))?;
     let base_dir = path.parent().unwrap_or(path);
 
-    let mut dependencies = Vec::with_capacity(directives.len());
-    for directive in &directives {
-        let (directive_type, kind, meta) = match directive {
+    let mut seen: HashSet<(String, ResolveKind)> = HashSet::new();
+    let mut dependencies = Vec::new();
+
+    Parser::scan(&content, syntax, |directive| {
+        let (directive_type, kind, meta) = match &directive {
             Directive::Use(u) => (
                 DirectiveType::Use,
                 ResolveKind::Module,
@@ -383,18 +462,23 @@ fn scan_file(path: &Path, resolver: &Resolver) -> Result<Vec<ScannedDependency>>
         };
 
         for target in directive.paths() {
-            if Resolver::is_external(target) {
+            if Resolver::is_external(target) || !seen.insert((target.to_string(), kind)) {
                 continue;
             }
+            let resolved = match resolver.resolve_from_dir(base_dir, target, kind) {
+                Ok(path) => Ok(path),
+                Err(ResolveError::Ambiguous { candidates, .. }) => Err(Some(candidates)),
+                Err(_) => Err(None),
+            };
             dependencies.push(ScannedDependency {
                 target: target.to_string(),
-                resolved: resolver.resolve_from_dir(base_dir, target, kind).ok(),
+                resolved,
                 directive_type,
                 location: *directive.location(),
                 meta: meta.clone(),
             });
         }
-    }
+    });
 
     Ok(dependencies)
 }
@@ -549,5 +633,117 @@ mod tests {
         assert!(graph.get_node("_helper.scss").is_some());
         assert!(graph.get_node("node_modules/pkg/_x.scss").is_none());
         assert_eq!(graph.edge_count(), 4);
+    }
+
+    /// Builds and returns the graph for `main.scss` under `root`.
+    fn build(root: &Path) -> DependencyGraph {
+        let mut graph = DependencyGraph::new();
+        graph
+            .build_from_entry(&root.join("main.scss"), &Resolver::default(), root)
+            .unwrap();
+        graph
+    }
+
+    #[test]
+    fn legacy_import_is_not_hidden_by_use_of_same_target() {
+        let temp = TempDir::new().unwrap();
+        let root = dunce::canonicalize(temp.path()).unwrap();
+        fs::write(
+            root.join("main.scss"),
+            "@use \"theme\";\n@import \"theme\";\n",
+        )
+        .unwrap();
+        fs::write(root.join("_theme.scss"), "").unwrap();
+
+        let graph = build(&root);
+        let edges: Vec<_> = graph.edges().collect();
+        assert_eq!(edges.len(), 1);
+        assert_eq!(edges[0].2.directive_type, DirectiveType::Import);
+        assert_eq!(edges[0].2.location, Location::new(2, 1));
+    }
+
+    #[test]
+    fn ambiguous_targets_are_unresolved_with_a_reason() {
+        let temp = TempDir::new().unwrap();
+        let root = dunce::canonicalize(temp.path()).unwrap();
+        fs::write(root.join("main.scss"), "@use \"a\";\n").unwrap();
+        fs::write(root.join("a.scss"), "").unwrap();
+        fs::write(root.join("_a.scss"), "").unwrap();
+
+        let graph = build(&root);
+        assert_eq!(graph.node_count(), 1);
+        let unresolved = graph.unresolved();
+        assert_eq!(unresolved.len(), 1);
+        assert_eq!(
+            unresolved[0].reason.as_deref(),
+            Some("ambiguous: _a.scss, a.scss")
+        );
+    }
+
+    #[test]
+    fn css_files_are_not_scanned() {
+        let temp = TempDir::new().unwrap();
+        let root = dunce::canonicalize(temp.path()).unwrap();
+        fs::write(root.join("main.scss"), "@use \"a\";\n").unwrap();
+        fs::write(root.join("a.css"), "@import \"b\";\n").unwrap();
+        fs::write(root.join("_b.scss"), "").unwrap();
+
+        let graph = build(&root);
+        assert!(graph.get_node("a.css").is_some());
+        assert!(graph.get_node("_b.scss").is_none());
+        assert!(graph.unresolved().is_empty());
+    }
+
+    #[test]
+    fn duplicate_targets_in_one_file_resolve_once() {
+        let temp = TempDir::new().unwrap();
+        let root = dunce::canonicalize(temp.path()).unwrap();
+        let mut main = "@import \"a\", \"a\", \"missing\";\n".repeat(1000);
+        main.push_str("@use \"a\";\n");
+        fs::write(root.join("main.scss"), main).unwrap();
+        fs::write(root.join("_a.scss"), "").unwrap();
+
+        let graph = build(&root);
+        assert_eq!(graph.edge_count(), 1);
+        assert_eq!(graph.unresolved().len(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_files_resolve_imports_from_the_link_location() {
+        let temp = TempDir::new().unwrap();
+        let root = dunce::canonicalize(temp.path()).unwrap();
+        fs::create_dir_all(root.join("real/sub")).unwrap();
+        std::os::unix::fs::symlink(root.join("real/sub"), root.join("link")).unwrap();
+        fs::write(root.join("main.scss"), "@use \"link/a\";\n").unwrap();
+        fs::write(root.join("real/sub/_a.scss"), "@use \"../b\";\n").unwrap();
+        fs::write(root.join("_b.scss"), "").unwrap();
+        fs::write(root.join("real/_b.scss"), "").unwrap();
+
+        // Dart Sass resolves URLs lexically: link/../b is <root>/b.
+        let graph = build(&root);
+        assert!(graph.get_node("link/_a.scss").is_some());
+        assert!(graph.get_node("_b.scss").is_some());
+        assert!(graph.get_node("real/_b.scss").is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_ids_are_injective() {
+        let root = Path::new("/p");
+        assert_eq!(file_id(Path::new("/p/a/_b.scss"), root), "a/_b.scss");
+        assert_eq!(file_id(Path::new("/p/a\\_b.scss"), root), "a\\\\_b.scss");
+
+        use std::os::unix::ffi::OsStrExt;
+        let ff = file_id(
+            Path::new(std::ffi::OsStr::from_bytes(b"/p/_x\xff.scss")),
+            root,
+        );
+        let fe = file_id(
+            Path::new(std::ffi::OsStr::from_bytes(b"/p/_x\xfe.scss")),
+            root,
+        );
+        assert_eq!(ff, "_x\\xFF.scss");
+        assert_ne!(ff, fe);
     }
 }

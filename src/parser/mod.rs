@@ -54,4 +54,4 @@ pub use directive::{
     Directive, ForwardDirective, ImportDirective, Location, Namespace, UseDirective, Visibility,
 };
 pub use error::ParseError;
-pub use lexer::Parser;
+pub use lexer::{Parser, Syntax};

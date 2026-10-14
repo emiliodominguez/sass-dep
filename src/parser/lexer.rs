@@ -1,13 +1,25 @@
-//! Hand-written, single-pass SCSS scanner.
+//! Hand-written, single-pass Sass scanner.
 //!
 //! This module extracts only dependency directives (`@use`, `@forward`,
-//! `@import`) from SCSS source code. It walks the input exactly once at the
-//! byte level, skipping strings, comments and `url(...)` tokens so that `@`
-//! characters inside them are never mistaken for directives.
+//! `@import`) from Sass source code. It walks the input exactly once at the
+//! byte level and skips every construct that may legally contain an `@` or
+//! a quote without starting a directive:
 //!
-//! Every byte is consumed through [`Cursor::bump`], which keeps line/column
-//! tracking exact even when a directive spans several lines (for example a
-//! multi-line `with (...)` configuration map).
+//! - strings, including `#{...}` interpolation with nested strings,
+//! - silent (`//`) and loud (`/* */`) comments, including indentation-based
+//!   comments in the indented (`.sass`) syntax,
+//! - unquoted `url(...)` tokens (which may contain `//`, `/*` and escapes),
+//! - backslash escapes outside strings,
+//! - custom property values (`--x: @import "a"` is raw CSS, not a rule).
+//!
+//! Directive names are case-sensitive, as in Dart Sass (`@IMPORT` is an
+//! unknown CSS at-rule). Every byte is consumed through [`Cursor::bump`],
+//! which tracks lines (`\n`, `\r\n` and lone `\r`) so locations stay exact;
+//! columns are counted in UTF-16 code units like Dart Sass reports them.
+//!
+//! All loops are iterative (nesting is tracked with explicit stacks), so
+//! hostile input can neither overflow the stack nor make scanning
+//! super-linear.
 
 use std::path::Path;
 
@@ -16,7 +28,29 @@ use super::{
     Visibility,
 };
 
-/// Parser for SCSS dependency directives.
+/// Source syntax of a stylesheet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Syntax {
+    /// SCSS (`.scss`).
+    Scss,
+    /// Indented syntax (`.sass`).
+    Sass,
+    /// Plain CSS (`.css`): Sass never follows its `@import`s.
+    Css,
+}
+
+impl Syntax {
+    /// Detects the syntax from a file extension (SCSS for anything unknown).
+    pub fn from_path(path: &Path) -> Self {
+        match path.extension().and_then(|ext| ext.to_str()) {
+            Some(ext) if ext.eq_ignore_ascii_case("sass") => Syntax::Sass,
+            Some(ext) if ext.eq_ignore_ascii_case("css") => Syntax::Css,
+            _ => Syntax::Scss,
+        }
+    }
+}
+
+/// Parser for Sass dependency directives.
 pub struct Parser;
 
 impl Parser {
@@ -49,12 +83,30 @@ impl Parser {
         Ok(Self::parse_bytes(input.as_bytes()))
     }
 
-    /// Parses raw bytes and extracts all dependency directives.
+    /// Parses raw SCSS bytes and extracts all dependency directives.
     ///
     /// Invalid UTF-8 is tolerated: paths and identifiers are decoded lossily.
     pub fn parse_bytes(input: &[u8]) -> Vec<Directive> {
-        let mut cursor = Cursor::new(input);
+        Self::parse_with(input, Syntax::Scss)
+    }
+
+    /// Parses raw bytes in the given syntax.
+    pub fn parse_with(input: &[u8], syntax: Syntax) -> Vec<Directive> {
         let mut directives = Vec::new();
+        Self::scan(input, syntax, |directive| directives.push(directive));
+        directives
+    }
+
+    /// Streams every dependency directive to `visit`, in source order.
+    ///
+    /// This avoids materializing all directives of a file at once, which
+    /// keeps memory bounded on files with millions of directives.
+    pub fn scan(input: &[u8], syntax: Syntax, mut visit: impl FnMut(Directive)) {
+        if syntax == Syntax::Css {
+            return;
+        }
+
+        let mut cursor = Cursor::new(input, syntax);
 
         while let Some(byte) = cursor.peek() {
             match byte {
@@ -62,14 +114,22 @@ impl Parser {
                     cursor.bump();
                     cursor.skip_string_body(byte);
                 }
-                b'/' if cursor.peek_at(1) == Some(b'/') => cursor.skip_line_comment(),
-                b'/' if cursor.peek_at(1) == Some(b'*') => cursor.skip_block_comment(),
-                b'u' | b'U' if cursor.at_url_token() => cursor.skip_url_token(),
+                b'\\' => {
+                    cursor.bump();
+                    cursor.bump();
+                }
+                b'/' if cursor.peek_at(1) == Some(b'/') => cursor.skip_silent_comment(),
+                b'/' if cursor.peek_at(1) == Some(b'*') => cursor.skip_loud_comment(),
+                b'u' | b'U' if cursor.at_url_token() => {
+                    cursor.bump_n(4);
+                    cursor.try_unquoted_url();
+                }
+                b'-' if cursor.at_custom_property() => cursor.skip_custom_property(),
                 b'@' => {
                     let location = cursor.location();
                     cursor.bump();
                     if let Some(directive) = parse_directive(&mut cursor, location) {
-                        directives.push(directive);
+                        visit(directive);
                     }
                 }
                 _ => {
@@ -77,22 +137,20 @@ impl Parser {
                 }
             }
         }
-
-        directives
     }
 
-    /// Reads and parses a single file.
+    /// Reads and parses a single file, detecting the syntax from its extension.
     ///
     /// # Arguments
     ///
-    /// * `path` - Path to the SCSS file
+    /// * `path` - Path to the Sass file
     ///
     /// # Errors
     ///
     /// Returns [`ParseError::Io`] if the file cannot be read.
     pub fn parse_file(path: &Path) -> Result<Vec<Directive>, ParseError> {
         let content = std::fs::read(path)?;
-        Ok(Self::parse_bytes(&content))
+        Ok(Self::parse_with(&content, Syntax::from_path(path)))
     }
 }
 
@@ -100,25 +158,27 @@ impl Parser {
 #[derive(Clone)]
 struct Cursor<'a> {
     src: &'a [u8],
+    syntax: Syntax,
     pos: usize,
     line: usize,
     line_start: usize,
-    /// Byte offset up to which `col_chars` has been counted on the current line.
+    /// Byte offset up to which `col_units` has been counted on the current line.
     col_pos: usize,
-    /// Characters between `line_start` and `col_pos`.
-    col_chars: usize,
+    /// UTF-16 code units between `line_start` and `col_pos`.
+    col_units: usize,
 }
 
 impl<'a> Cursor<'a> {
     /// Creates a cursor at the start of `src`.
-    fn new(src: &'a [u8]) -> Self {
+    fn new(src: &'a [u8], syntax: Syntax) -> Self {
         Self {
             src,
+            syntax,
             pos: 0,
             line: 1,
             line_start: 0,
             col_pos: 0,
-            col_chars: 0,
+            col_units: 0,
         }
     }
 
@@ -134,74 +194,165 @@ impl<'a> Cursor<'a> {
         self.src.get(self.pos + offset).copied()
     }
 
-    /// Consumes one byte, updating line tracking.
+    /// Consumes one byte, updating line tracking (`\n`, `\r\n`, lone `\r`).
     #[inline]
     fn bump(&mut self) -> Option<u8> {
         let byte = self.peek()?;
         self.pos += 1;
-        if byte == b'\n' {
+        let newline = byte == b'\n' || (byte == b'\r' && self.peek() != Some(b'\n'));
+        if newline {
             self.line += 1;
             self.line_start = self.pos;
         }
         Some(byte)
     }
 
-    /// Returns the 1-indexed location of the cursor (column counted in characters).
-    ///
-    /// Columns are counted incrementally from the previous call on the same
-    /// line, so minified single-line files stay linear.
-    fn location(&mut self) -> Location {
-        if self.col_pos < self.line_start || self.col_pos > self.pos {
-            self.col_pos = self.line_start;
-            self.col_chars = 0;
-        }
-        self.col_chars += self.src[self.col_pos..self.pos]
-            .iter()
-            .filter(|&&b| (b & 0xC0) != 0x80)
-            .count();
-        self.col_pos = self.pos;
-        Location::new(self.line, self.col_chars + 1)
-    }
-
-    /// Skips the body of a string whose opening `quote` was already consumed.
-    ///
-    /// Stops after the closing quote, or before an unescaped newline
-    /// (unterminated string), so a malformed string cannot swallow the file.
-    fn skip_string_body(&mut self, quote: u8) {
-        while let Some(byte) = self.peek() {
-            match byte {
-                b'\\' => {
-                    self.bump();
-                    self.bump();
-                }
-                b'\n' => return,
-                _ => {
-                    self.bump();
-                    if byte == quote {
-                        return;
-                    }
-                }
-            }
-        }
-    }
-
-    /// Skips a `//` comment up to (not including) the newline.
-    fn skip_line_comment(&mut self) {
-        while let Some(byte) = self.peek() {
-            if byte == b'\n' {
-                return;
-            }
+    /// Consumes `n` bytes.
+    fn bump_n(&mut self, n: usize) {
+        for _ in 0..n {
             self.bump();
         }
     }
 
-    /// Skips a `/* ... */` comment including its terminator.
-    fn skip_block_comment(&mut self) {
-        self.bump();
-        self.bump();
+    /// Returns the 1-indexed location of the cursor.
+    ///
+    /// Columns are counted in UTF-16 code units (like Dart Sass) and
+    /// incrementally from the previous call on the same line, so minified
+    /// single-line files stay linear.
+    fn location(&mut self) -> Location {
+        if self.col_pos < self.line_start || self.col_pos > self.pos {
+            self.col_pos = self.line_start;
+            self.col_units = 0;
+        }
+        self.col_units += self.src[self.col_pos..self.pos]
+            .iter()
+            .map(|&b| match b {
+                0x80..=0xBF => 0,
+                0xF0..=0xFF => 2,
+                _ => 1,
+            })
+            .sum::<usize>();
+        self.col_pos = self.pos;
+        Location::new(self.line, self.col_units + 1)
+    }
+
+    /// Returns `true` at a line break byte.
+    fn at_newline(&self) -> bool {
+        matches!(self.peek(), Some(b'\n' | b'\r' | b'\x0C'))
+    }
+
+    /// Skips the rest of a string whose opening `quote` was already consumed.
+    ///
+    /// `#{...}` interpolation (which may itself contain strings and braces)
+    /// is tracked with an explicit stack. An unescaped line break ends an
+    /// unterminated string, so a malformed string cannot swallow the file.
+    fn skip_string_body(&mut self, quote: u8) {
+        self.skip_nested(vec![quote]);
+    }
+
+    /// Runs the string/interpolation state machine until `stack` is empty.
+    ///
+    /// Stack entries are quote bytes (inside a string) or `{` (inside an
+    /// interpolation or a brace nested in one).
+    fn skip_nested(&mut self, mut stack: Vec<u8>) {
+        while let Some(&top) = stack.last() {
+            let Some(byte) = self.peek() else {
+                return;
+            };
+
+            if top == b'{' {
+                match byte {
+                    b'}' => {
+                        self.bump();
+                        stack.pop();
+                    }
+                    b'{' | b'"' | b'\'' => {
+                        self.bump();
+                        stack.push(byte);
+                    }
+                    b'\\' => self.bump_n(2),
+                    _ => {
+                        self.bump();
+                    }
+                }
+                continue;
+            }
+
+            match byte {
+                b'\\' => self.bump_n(2),
+                b'\n' | b'\r' | b'\x0C' => return,
+                b'#' if self.peek_at(1) == Some(b'{') => {
+                    self.bump_n(2);
+                    stack.push(b'{');
+                }
+                _ if byte == top => {
+                    self.bump();
+                    stack.pop();
+                }
+                _ => {
+                    self.bump();
+                }
+            }
+        }
+    }
+
+    /// Skips to the end of the current line (not consuming the line break).
+    fn skip_to_line_end(&mut self) {
+        while self.peek().is_some() && !self.at_newline() {
+            self.bump();
+        }
+    }
+
+    /// Skips a `//` comment.
+    ///
+    /// In the indented syntax a comment also owns every following line that
+    /// is indented deeper than the line the comment starts on.
+    fn skip_silent_comment(&mut self) {
+        if self.syntax == Syntax::Sass {
+            self.skip_indented_block();
+        } else {
+            self.skip_to_line_end();
+        }
+    }
+
+    /// Skips a `/* ... */` comment (indentation-based in the indented syntax).
+    fn skip_loud_comment(&mut self) {
+        if self.syntax == Syntax::Sass {
+            self.skip_indented_block();
+            return;
+        }
+
+        self.bump_n(2);
         while let Some(byte) = self.bump() {
             if byte == b'*' && self.peek() == Some(b'/') {
                 self.bump();
+                return;
+            }
+        }
+    }
+
+    /// Skips the current line plus all following blank or deeper-indented lines.
+    fn skip_indented_block(&mut self) {
+        let base = indentation(&self.src[self.line_start..]);
+        self.skip_to_line_end();
+
+        loop {
+            let checkpoint = self.clone();
+            if !self.at_newline() {
+                return;
+            }
+            self.bump();
+            if self.peek() == Some(b'\n') && checkpoint.peek() == Some(b'\r') {
+                self.bump();
+            }
+
+            let rest = &self.src[self.pos..];
+            let indent = indentation(rest);
+            let blank = matches!(rest.get(indent), None | Some(b'\n' | b'\r'));
+            if blank || indent > base {
+                self.skip_to_line_end();
+            } else {
+                *self = checkpoint;
                 return;
             }
         }
@@ -214,8 +365,8 @@ impl<'a> Cursor<'a> {
                 b' ' | b'\t' | b'\n' | b'\r' | b'\x0C' => {
                     self.bump();
                 }
-                b'/' if self.peek_at(1) == Some(b'/') => self.skip_line_comment(),
-                b'/' if self.peek_at(1) == Some(b'*') => self.skip_block_comment(),
+                b'/' if self.peek_at(1) == Some(b'/') => self.skip_silent_comment(),
+                b'/' if self.peek_at(1) == Some(b'*') => self.skip_loud_comment(),
                 _ => return,
             }
         }
@@ -228,35 +379,132 @@ impl<'a> Cursor<'a> {
         }
     }
 
+    /// Returns `true` if the previous byte cannot continue an identifier.
+    fn at_ident_start(&self) -> bool {
+        self.pos == 0 || !is_ident_byte(self.src[self.pos - 1])
+    }
+
     /// Returns `true` if the cursor sits on a `url(` token that starts an identifier.
     fn at_url_token(&self) -> bool {
-        let starts_ident = self.pos == 0 || !is_ident_byte(self.src[self.pos - 1]);
-        starts_ident
+        self.at_ident_start()
             && self.src.len() >= self.pos + 4
             && self.src[self.pos..self.pos + 3].eq_ignore_ascii_case(b"url")
             && self.src[self.pos + 3] == b'('
     }
 
-    /// Skips a `url(...)` token, whose unquoted body may legally contain `//` or `@`.
-    fn skip_url_token(&mut self) {
-        for _ in 0..3 {
-            self.bump();
+    /// Consumes the body of an unquoted `url(...)` whose `url(` was consumed.
+    ///
+    /// Mirrors Dart Sass's `_tryUrlContents`: escapes are honoured, `//` and
+    /// `/*` are literal, and the token ends at the first unescaped `)`. If
+    /// the contents are not a valid unquoted URL (a quote, a nested `(` or
+    /// junk after trailing whitespace), the cursor is restored and `false`
+    /// is returned so the caller scans the arguments as ordinary code.
+    fn try_unquoted_url(&mut self) -> bool {
+        let checkpoint = self.clone();
+        self.skip_whitespace();
+
+        while let Some(byte) = self.peek() {
+            match byte {
+                b'\\' => self.bump_n(2),
+                b')' => {
+                    self.bump();
+                    return true;
+                }
+                b'#' if self.peek_at(1) == Some(b'{') => {
+                    self.bump_n(2);
+                    self.skip_nested(vec![b'{']);
+                }
+                b' ' | b'\t' | b'\n' | b'\r' | b'\x0C' => {
+                    self.skip_whitespace();
+                    if self.peek() == Some(b')') {
+                        self.bump();
+                        return true;
+                    }
+                    break;
+                }
+                b'"' | b'\'' | b'(' => break,
+                _ => {
+                    self.bump();
+                }
+            }
         }
-        self.skip_balanced();
+
+        *self = checkpoint;
+        false
     }
 
-    /// Consumes `keyword` case-insensitively if it is followed by a non-identifier byte.
+    /// Skips whitespace including line breaks.
+    fn skip_whitespace(&mut self) {
+        while matches!(self.peek(), Some(b' ' | b'\t' | b'\n' | b'\r' | b'\x0C')) {
+            self.bump();
+        }
+    }
+
+    /// Returns `true` at the start of a custom property declaration (`--name:`).
+    fn at_custom_property(&self) -> bool {
+        if !self.at_ident_start() || self.peek_at(1) != Some(b'-') {
+            return false;
+        }
+        let mut i = self.pos + 2;
+        while self.src.get(i).copied().is_some_and(is_ident_byte) {
+            i += 1;
+        }
+        while matches!(self.src.get(i), Some(b' ' | b'\t')) {
+            i += 1;
+        }
+        self.src.get(i) == Some(&b':')
+    }
+
+    /// Skips a custom property's name and raw value.
+    ///
+    /// The value ends at `;`, at an unmatched `}`/`)`/`]` or at the end of
+    /// input (and at a line break in the indented syntax), with strings,
+    /// comments and brackets tracked iteratively.
+    fn skip_custom_property(&mut self) {
+        while self.peek() != Some(b':') {
+            self.bump();
+        }
+        self.bump();
+
+        let mut depth = 0usize;
+        while let Some(byte) = self.peek() {
+            match byte {
+                b'"' | b'\'' => {
+                    self.bump();
+                    self.skip_string_body(byte);
+                }
+                b'\\' => self.bump_n(2),
+                b'/' if self.peek_at(1) == Some(b'*') => self.skip_loud_comment(),
+                b'(' | b'[' | b'{' => {
+                    depth += 1;
+                    self.bump();
+                }
+                b')' | b']' | b'}' => {
+                    if depth == 0 {
+                        return;
+                    }
+                    depth -= 1;
+                    self.bump();
+                }
+                b';' if depth == 0 => return,
+                b'\n' | b'\r' if depth == 0 && self.syntax == Syntax::Sass => return,
+                _ => {
+                    self.bump();
+                }
+            }
+        }
+    }
+
+    /// Consumes `keyword` (case-sensitively) if it is followed by a non-identifier byte.
     fn eat_keyword(&mut self, keyword: &[u8]) -> bool {
         let end = self.pos + keyword.len();
-        if end > self.src.len() || !self.src[self.pos..end].eq_ignore_ascii_case(keyword) {
+        if end > self.src.len() || &self.src[self.pos..end] != keyword {
             return false;
         }
         if self.src.get(end).copied().is_some_and(is_ident_byte) {
             return false;
         }
-        for _ in 0..keyword.len() {
-            self.bump();
-        }
+        self.bump_n(keyword.len());
         true
     }
 
@@ -269,8 +517,14 @@ impl<'a> Cursor<'a> {
         (self.pos > start).then(|| String::from_utf8_lossy(&self.src[start..self.pos]).into_owned())
     }
 
-    /// Reads a quoted string literal, unescaping `\x` sequences to `x`.
-    fn read_string(&mut self) -> Option<String> {
+    /// Reads a quoted string literal.
+    ///
+    /// CSS escapes are decoded: `\66` (1-6 hex digits, plus one optional
+    /// whitespace) becomes the code point, an escaped line break is removed
+    /// and any other escaped character stands for itself. Returns `None` for
+    /// an unterminated string, and [`StringLiteral::Interpolated`] (with the
+    /// whole literal skipped) when it contains `#{...}`.
+    fn read_string(&mut self) -> Option<StringLiteral> {
         let quote = self.peek().filter(|b| *b == b'"' || *b == b'\'')?;
         self.bump();
 
@@ -279,12 +533,19 @@ impl<'a> Cursor<'a> {
             match byte {
                 b'\\' => {
                     self.bump();
-                    buf.push(self.bump()?);
+                    self.read_escape(&mut buf)?;
                 }
-                b'\n' => return None,
+                b'#' if self.peek_at(1) == Some(b'{') => {
+                    self.bump_n(2);
+                    self.skip_nested(vec![quote, b'{']);
+                    return Some(StringLiteral::Interpolated);
+                }
+                b'\n' | b'\r' | b'\x0C' => return None,
                 _ if byte == quote => {
                     self.bump();
-                    return Some(String::from_utf8_lossy(&buf).into_owned());
+                    return Some(StringLiteral::Plain(
+                        String::from_utf8_lossy(&buf).into_owned(),
+                    ));
                 }
                 _ => {
                     buf.push(byte);
@@ -296,16 +557,75 @@ impl<'a> Cursor<'a> {
         None
     }
 
+    /// Decodes the escape following a consumed backslash into `buf`.
+    fn read_escape(&mut self, buf: &mut Vec<u8>) -> Option<()> {
+        let first = self.peek()?;
+
+        if first.is_ascii_hexdigit() {
+            let mut value: u32 = 0;
+            for _ in 0..6 {
+                match self.peek() {
+                    Some(digit) if digit.is_ascii_hexdigit() => {
+                        value = value * 16 + (digit as char).to_digit(16).unwrap_or(0);
+                        self.bump();
+                    }
+                    _ => break,
+                }
+            }
+            match self.peek() {
+                Some(b' ' | b'\t' | b'\n' | b'\x0C') => {
+                    self.bump();
+                }
+                Some(b'\r') => {
+                    self.bump();
+                    if self.peek() == Some(b'\n') {
+                        self.bump();
+                    }
+                }
+                _ => {}
+            }
+            let ch = char::from_u32(value)
+                .filter(|c| *c != '\0')
+                .unwrap_or(char::REPLACEMENT_CHARACTER);
+            let mut utf8 = [0; 4];
+            buf.extend_from_slice(ch.encode_utf8(&mut utf8).as_bytes());
+            return Some(());
+        }
+
+        match first {
+            b'\n' | b'\x0C' => {
+                self.bump();
+            }
+            b'\r' => {
+                self.bump();
+                if self.peek() == Some(b'\n') {
+                    self.bump();
+                }
+            }
+            _ => {
+                buf.push(first);
+                self.bump();
+            }
+        }
+        Some(())
+    }
+
     /// Skips a balanced parenthesised group starting at `(`.
     ///
-    /// Nested parentheses, strings and comments are handled, so
-    /// `with ($map: (a: ")"))` is consumed as a single unit.
+    /// Nested parentheses, strings (with interpolation), escapes and both
+    /// comment styles are handled, so `with ($map: (a: ")"), // note (` is
+    /// consumed as a single unit.
     fn skip_balanced(&mut self) -> bool {
         if self.peek() != Some(b'(') {
             return false;
         }
+        self.bump();
+        self.skip_balanced_inside()
+    }
 
-        let mut depth = 0usize;
+    /// Skips to the `)` closing an already-consumed `(`.
+    fn skip_balanced_inside(&mut self) -> bool {
+        let mut depth = 1usize;
         while let Some(byte) = self.peek() {
             match byte {
                 b'(' => {
@@ -323,7 +643,15 @@ impl<'a> Cursor<'a> {
                     self.bump();
                     self.skip_string_body(byte);
                 }
-                b'/' if self.peek_at(1) == Some(b'*') => self.skip_block_comment(),
+                b'\\' => self.bump_n(2),
+                b'/' if self.peek_at(1) == Some(b'/') => self.skip_to_line_end(),
+                b'/' if self.peek_at(1) == Some(b'*') => self.skip_loud_comment(),
+                b'u' | b'U' if self.at_url_token() => {
+                    self.bump_n(4);
+                    if !self.try_unquoted_url() {
+                        depth += 1;
+                    }
+                }
                 _ => {
                     self.bump();
                 }
@@ -340,6 +668,21 @@ impl<'a> Cursor<'a> {
             self.bump();
         }
     }
+}
+
+/// A quoted string read by [`Cursor::read_string`].
+enum StringLiteral {
+    /// A string without interpolation.
+    Plain(String),
+    /// A string containing `#{...}`; its value is only known at compile time.
+    Interpolated,
+}
+
+/// Counts the leading spaces and tabs of a line.
+fn indentation(line: &[u8]) -> usize {
+    line.iter()
+        .take_while(|b| matches!(b, b' ' | b'\t'))
+        .count()
 }
 
 /// Returns `true` for bytes that may appear in a Sass identifier.
@@ -372,10 +715,18 @@ fn parse_directive(cursor: &mut Cursor<'_>, location: Location) -> Option<Direct
     }
 }
 
+/// Reads the URL string of `@use`/`@forward` (interpolation is not allowed there).
+fn read_module_url(cursor: &mut Cursor<'_>) -> Option<String> {
+    cursor.skip_trivia();
+    match cursor.read_string()? {
+        StringLiteral::Plain(path) => Some(path),
+        StringLiteral::Interpolated => None,
+    }
+}
+
 /// Parses the remainder of `@use "<path>" [as <ns>|*] [with (...)];`.
 fn parse_use(cursor: &mut Cursor<'_>, location: Location) -> Option<UseDirective> {
-    cursor.skip_trivia();
-    let path = cursor.read_string()?;
+    let path = read_module_url(cursor)?;
 
     let mut namespace = None;
     let mut configured = false;
@@ -415,8 +766,7 @@ fn parse_use(cursor: &mut Cursor<'_>, location: Location) -> Option<UseDirective
 
 /// Parses the remainder of `@forward "<path>" [as prefix-*] [show|hide ...] [with (...)];`.
 fn parse_forward(cursor: &mut Cursor<'_>, location: Location) -> Option<ForwardDirective> {
-    cursor.skip_trivia();
-    let path = cursor.read_string()?;
+    let path = read_module_url(cursor)?;
 
     let mut prefix = None;
     let mut visibility = Visibility::All;
@@ -492,29 +842,55 @@ fn read_member_list(cursor: &mut Cursor<'_>) -> Vec<String> {
     members
 }
 
-/// Parses the remainder of `@import "a", "b" [media-query];`.
+/// Reads an unquoted `@import` argument (indented syntax only).
+fn read_unquoted_import(cursor: &mut Cursor<'_>) -> Option<String> {
+    let start = cursor.pos;
+    while cursor
+        .peek()
+        .is_some_and(|b| !matches!(b, b',' | b';' | b' ' | b'\t' | b'\n' | b'\r' | b'\x0C'))
+    {
+        cursor.bump();
+    }
+    let text = String::from_utf8_lossy(&cursor.src[start..cursor.pos]).into_owned();
+    (!text.is_empty()).then_some(text)
+}
+
+/// Parses the remainder of `@import "a", "b" [modifiers];`.
 ///
-/// Plain CSS imports (`url(...)`, `*.css`, remote URLs, or any import
-/// followed by a media query) are dropped because Sass never loads them.
-/// Returns `None` when no Sass dependency remains.
+/// Plain CSS imports (`url(...)`, `*.css`, remote URLs, interpolated URLs,
+/// or any import followed by modifiers such as a media query, `supports()`
+/// or `layer()`) are dropped because Sass never loads them. Returns `None`
+/// when no Sass dependency remains.
 fn parse_import(cursor: &mut Cursor<'_>, location: Location) -> Option<ImportDirective> {
     let mut paths = Vec::new();
 
     loop {
         cursor.skip_trivia();
         match cursor.peek() {
-            Some(b'"' | b'\'') => {
-                let target = cursor.read_string()?;
-                if !is_plain_css_import(&target) {
-                    paths.push(target);
+            Some(b'"' | b'\'') => match cursor.read_string()? {
+                StringLiteral::Plain(target) if !is_plain_css_import(&target) => paths.push(target),
+                _ => {}
+            },
+            Some(b'u' | b'U') if cursor.at_url_token() => {
+                cursor.bump_n(4);
+                if !cursor.try_unquoted_url() {
+                    cursor.skip_balanced_inside();
                 }
             }
-            Some(b'u' | b'U') if cursor.at_url_token() => cursor.skip_url_token(),
+            Some(_) if cursor.syntax == Syntax::Sass => match read_unquoted_import(cursor) {
+                Some(target) if !is_plain_css_import(&target) => paths.push(target),
+                Some(_) => {}
+                None => break,
+            },
             _ => break,
         }
 
         let checkpoint = cursor.clone();
-        cursor.skip_trivia();
+        if cursor.syntax == Syntax::Sass {
+            cursor.skip_inline_space();
+        } else {
+            cursor.skip_trivia();
+        }
         if cursor.peek() == Some(b',') {
             cursor.bump();
         } else {
@@ -523,14 +899,21 @@ fn parse_import(cursor: &mut Cursor<'_>, location: Location) -> Option<ImportDir
         }
     }
 
-    // Anything other than a terminator on the same line is a media query or
-    // `supports()` condition, which turns the whole rule into plain CSS.
-    cursor.skip_inline_space();
-    let has_condition = !matches!(
-        cursor.peek(),
-        None | Some(b';' | b'\n' | b'\r' | b'}' | b'/')
-    );
-    if has_condition {
+    // Anything but a terminator after the URLs is a modifier (media query,
+    // `supports()`, `layer()`), which turns the whole rule into plain CSS.
+    // SCSS ends rules with `;`/`}`; the indented syntax ends them at a line break.
+    let terminated = if cursor.syntax == Syntax::Sass {
+        cursor.skip_inline_space();
+        if cursor.peek() == Some(b'/') && cursor.peek_at(1) == Some(b'*') {
+            cursor.skip_loud_comment();
+        }
+        matches!(cursor.peek(), None | Some(b'\n' | b'\r' | b';'))
+            || (cursor.peek() == Some(b'/') && cursor.peek_at(1) == Some(b'/'))
+    } else {
+        cursor.skip_trivia();
+        matches!(cursor.peek(), None | Some(b';' | b'}'))
+    };
+    if !terminated {
         return None;
     }
 
@@ -756,8 +1139,8 @@ mod tests {
 
     #[test]
     fn parse_indented_syntax_without_semicolons() {
-        let input = "@use \"a\"\n@forward \"b\"\n@import \"c\"\n";
-        let directives = Parser::parse(input).unwrap();
+        let input = b"@use \"a\"\n@forward \"b\"\n@import \"c\"\n";
+        let directives = Parser::parse_with(input, Syntax::Sass);
         assert_eq!(directives.len(), 3);
         assert_eq!(directives[2].location().line, 3);
     }
@@ -941,5 +1324,145 @@ mod tests {
         input.push(b'\n');
         let directives = Parser::parse_bytes(&input);
         assert_eq!(directives.len(), 2);
+    }
+
+    /// Parses `input` as SCSS and returns every dependency target.
+    fn targets(input: &str) -> Vec<String> {
+        targets_with(input, Syntax::Scss)
+    }
+
+    /// Parses `input` in `syntax` and returns every dependency target.
+    fn targets_with(input: &str, syntax: Syntax) -> Vec<String> {
+        Parser::parse_with(input.as_bytes(), syntax)
+            .iter()
+            .flat_map(|d| d.paths().into_iter().map(str::to_string))
+            .collect()
+    }
+
+    #[test]
+    fn line_comment_inside_with_configuration() {
+        let input = "@use \"cfg\" with (\n  $a: 1, // see (docs\n  $b: 2 // tokens/*.scss\n);\n@use \"other\";";
+        assert_eq!(targets(input), vec!["cfg", "other"]);
+    }
+
+    #[test]
+    fn unquoted_url_with_escapes_and_comment_markers() {
+        assert_eq!(
+            targets("a { b: url(x\\(.png); }\n@import \"foo\";"),
+            vec!["foo"]
+        );
+        assert_eq!(
+            targets("a{b:url(/img/*/x.png);}\n@import \"foo\";"),
+            vec!["foo"]
+        );
+        assert_eq!(
+            targets("@import url(a\\(b.css);\n@import \"foo\";"),
+            vec!["foo"]
+        );
+        assert_eq!(targets("a{b:url( x.png );}@import \"foo\";"), vec!["foo"]);
+        // A quoted url() is an ordinary function call.
+        assert_eq!(targets("a{b:url(\"x)\");}@import \"foo\";"), vec!["foo"]);
+    }
+
+    #[test]
+    fn media_queries_after_trivia_make_imports_plain_css() {
+        assert!(targets("@import \"a\"\n  screen;").is_empty());
+        assert!(targets("@import \"a\" /* c */ screen;").is_empty());
+        assert!(targets("@import \"a\"\r  screen;").is_empty());
+        assert!(targets("@import \"a\" supports(display: grid);").is_empty());
+        assert_eq!(
+            targets("@import \"a\" /* c */ ;\n.x { @import \"b\" }"),
+            vec!["a", "b"]
+        );
+    }
+
+    #[test]
+    fn directive_names_are_case_sensitive() {
+        assert!(targets("@IMPORT \"a\"; @Use \"b\"; @FORWARD \"c\";").is_empty());
+    }
+
+    #[test]
+    fn custom_property_values_are_raw() {
+        assert_eq!(
+            targets(".a { --x: @import \"foo\"; --y: { @use \"z\" }; } @use \"real\";"),
+            vec!["real"]
+        );
+        assert_eq!(
+            targets("@include m(--x: 1) { @use \"inner\"; }"),
+            vec!["inner"]
+        );
+    }
+
+    #[test]
+    fn escapes_outside_strings() {
+        assert_eq!(targets(".a\\\"b { c: d }  @import \"foo\";"), vec!["foo"]);
+    }
+
+    #[test]
+    fn interpolation_inside_strings() {
+        assert_eq!(targets("$x: \"#{'\"'}\"; @import \"foo\";"), vec!["foo"]);
+        assert_eq!(
+            targets("$x: \"#{map-get((a: \"}\"), a)}\"; @use \"foo\";"),
+            vec!["foo"]
+        );
+        // Interpolated URLs are plain CSS (@import) or invalid (@use).
+        assert_eq!(
+            targets("@import \"#{$theme}\"; @use \"#{$x}\"; @use \"ok\";"),
+            vec!["ok"]
+        );
+    }
+
+    #[test]
+    fn css_escapes_in_urls_are_decoded() {
+        assert_eq!(targets("@use \"\\66oo\";"), vec!["foo"]);
+        assert_eq!(targets("@use \"\\66 oo\";"), vec!["foo"]);
+        assert_eq!(targets("@use \"a\\\"b\";"), vec!["a\"b"]);
+        assert_eq!(targets("@use \"a\\\nb\";"), vec!["ab"]);
+        assert_eq!(targets("@use \"\\0\";"), vec!["\u{FFFD}"]);
+    }
+
+    #[test]
+    fn lone_carriage_returns_are_line_breaks() {
+        let directives = Parser::parse("/* a */\r/* b */\r@use \"x\";").unwrap();
+        assert_eq!(directives[0].location(), &Location::new(3, 1));
+        let directives = Parser::parse("/* a */\r\n@use \"x\";").unwrap();
+        assert_eq!(directives[0].location(), &Location::new(2, 1));
+    }
+
+    #[test]
+    fn columns_are_utf16_code_units() {
+        let directives = Parser::parse("/* \u{1F389} */ @use \"x\";").unwrap();
+        assert_eq!(directives[0].location().column, 10);
+    }
+
+    #[test]
+    fn indented_syntax_comments_and_unquoted_imports() {
+        let input = "/* header\n   continues @use \"no\"\n@use \"a\"\n// note\n  still comment @import \"no\"\n@import b, \"c\"\n@import d.css\n";
+        assert_eq!(targets_with(input, Syntax::Sass), vec!["a", "b", "c"]);
+        assert!(targets_with("@import \"a\" screen\n", Syntax::Sass).is_empty());
+    }
+
+    #[test]
+    fn css_files_have_no_dependencies() {
+        assert!(targets_with("@import \"b\";", Syntax::Css).is_empty());
+        assert_eq!(Syntax::from_path(Path::new("a/b.CSS")), Syntax::Css);
+        assert_eq!(Syntax::from_path(Path::new("a/b.sass")), Syntax::Sass);
+        assert_eq!(Syntax::from_path(Path::new("a/b")), Syntax::Scss);
+    }
+
+    #[test]
+    fn deep_nesting_is_iterative() {
+        let depth = 1_000_000;
+        let mut input = String::from("$x: \"");
+        input.push_str(&"#{\"".repeat(depth));
+        input.push_str("\n@use \"after\";");
+        assert_eq!(targets(&input), vec!["after"]);
+
+        let parens = format!(
+            "@use \"a\" with ({}{});\n@use \"b\";",
+            "(".repeat(depth),
+            ")".repeat(depth)
+        );
+        assert_eq!(targets(&parens), vec!["a", "b"]);
     }
 }

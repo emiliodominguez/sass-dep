@@ -1,11 +1,23 @@
 //! Path resolution implementation.
 //!
-//! This module implements Sass-compliant path resolution following
-//! the official Sass specification, backed by a thread-safe **directory
-//! listing cache** (`dir -> {canonical dir, files, dirs}`). Large projects
-//! need one `read_dir` + one `realpath` per directory instead of a `stat`
-//! per candidate file and a `realpath` per resolved import, and a single
-//! [`Resolver`] can be shared by the parallel graph builder.
+//! This module mirrors Dart Sass's filesystem importer
+//! (`resolveImportPath` in `lib/src/importer/utils.dart`):
+//!
+//! - The target is a URL: `?query` and `#fragment` are dropped and the path
+//!   is percent-decoded.
+//! - `.sass` and `.scss` candidates (plain and `_partial`) are collected
+//!   together and must match **exactly one** file; several matches are an
+//!   ambiguity error, exactly like Dart. `.css` is only tried when neither
+//!   matches, for `@use`, `@forward` and `@import` alike.
+//! - `@import` first tries import-only files (`foo.import.scss`).
+//! - Directories resolve to `index` files; targets that name a directory
+//!   explicitly (`"."`, `".."`, `"foo/"`) only resolve as directories.
+//! - Paths are kept **lexical** (symlinks are not resolved), so relative
+//!   imports inside a symlinked file resolve from the link's location.
+//!
+//! Lookups are backed by a thread-safe **directory listing cache**: each
+//! directory is read once, after which every candidate check is a hash
+//! lookup, so the resolver can be shared by the parallel graph builder.
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
@@ -26,9 +38,10 @@ pub struct ResolverConfig {
     /// `--root`).
     pub load_paths: Vec<PathBuf>,
 
-    /// File extensions to try, in order.
+    /// Sass file extensions to try (`.css` is always the final fallback).
     ///
-    /// Defaults to `["scss", "sass"]`.
+    /// Defaults to `["scss", "sass"]`. All of them are tried together, so a
+    /// target matching files with two different extensions is ambiguous.
     pub extensions: Vec<String>,
 }
 
@@ -43,8 +56,7 @@ impl Default for ResolverConfig {
 
 /// The kind of rule a path is being resolved for.
 ///
-/// `@import` has slightly different rules than the module system: it
-/// prefers `*.import.scss` files and never loads plain `.css` files.
+/// `@import` additionally considers import-only files (`foo.import.scss`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ResolveKind {
     /// `@use` or `@forward`.
@@ -65,6 +77,15 @@ pub enum ResolveError {
         target: String,
     },
 
+    /// Several files match the target (Dart Sass refuses to pick one).
+    #[error("It's not clear which file to import for '{target}'; found: {}", .candidates.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", "))]
+    Ambiguous {
+        /// The target path.
+        target: String,
+        /// Every matching file.
+        candidates: Vec<PathBuf>,
+    },
+
     /// The base path is invalid (not a file or directory).
     #[error("Invalid base path: {0}")]
     InvalidBasePath(PathBuf),
@@ -74,31 +95,17 @@ pub enum ResolveError {
     Io(#[from] std::io::Error),
 }
 
+/// Result of a lookup step: `Ok(None)` means "not here, keep looking";
+/// `Err` carries the candidates of an ambiguous match.
+type Lookup = Result<Option<PathBuf>, Vec<PathBuf>>;
+
 /// Cached listing of a directory.
 #[derive(Debug, Default)]
 struct DirListing {
-    /// Canonical path of the directory (`None` if it does not exist).
-    canonical: Option<PathBuf>,
-    /// File names, mapped to whether the entry is a symlink.
-    files: HashMap<OsString, bool>,
-    /// Sub-directory names.
+    /// Regular files (symlinks are followed).
+    files: HashSet<OsString>,
+    /// Sub-directories (symlinks are followed).
     dirs: HashSet<OsString>,
-}
-
-impl DirListing {
-    /// Returns the canonical path of file `name` if it exists in this directory.
-    ///
-    /// Plain files reuse the directory's canonical path; only symlinked
-    /// files pay for a `realpath`.
-    fn file(&self, dir: &Path, name: &str) -> Option<PathBuf> {
-        match self.files.get(OsStr::new(name))? {
-            true => dunce::canonicalize(dir.join(name)).ok(),
-            false => self
-                .canonical
-                .as_ref()
-                .map(|canonical| canonical.join(name)),
-        }
-    }
 }
 
 /// Shared caches behind a [`Resolver`].
@@ -148,26 +155,11 @@ impl Resolver {
     /// # Arguments
     ///
     /// * `base` - The path of the file containing the directive (or its directory)
-    /// * `target` - The path string from the directive (e.g., `"variables"`)
+    /// * `target` - The URL from the directive (e.g., `"variables"`)
     ///
     /// # Returns
     ///
-    /// The canonical absolute path to the resolved file.
-    ///
-    /// # Resolution Order
-    ///
-    /// For `@use "foo"` from `/project/src/main.scss`:
-    ///
-    /// 1. `/project/src/foo.scss`
-    /// 2. `/project/src/_foo.scss`
-    /// 3. `/project/src/foo.sass`
-    /// 4. `/project/src/_foo.sass`
-    /// 5. `/project/src/foo.css` / `_foo.css` (module rules only)
-    /// 6. `/project/src/foo/index.scss`, `/project/src/foo/_index.scss`, ...
-    /// 7. Repeat for each load path
-    ///
-    /// Webpack-style `~pkg/path` targets are resolved against the load paths
-    /// and then against `node_modules` directories walking up from `base`.
+    /// The absolute, lexically normalized path of the resolved file.
     ///
     /// # Example
     ///
@@ -196,158 +188,176 @@ impl Resolver {
 
     /// Resolves `target` relative to `base_dir` for the given rule kind.
     ///
-    /// Unlike [`Resolver::resolve`], this performs no `stat` on the base and
-    /// is the entry point used by the graph builder.
+    /// Search order: relative to `base_dir`, then each load path. Webpack
+    /// style `~pkg/path` targets are looked up in the load paths and then in
+    /// `node_modules` directories walking up from `base_dir`.
     ///
     /// # Errors
     ///
-    /// Returns [`ResolveError::NotFound`] if no candidate exists.
+    /// [`ResolveError::NotFound`] if nothing matches, or
+    /// [`ResolveError::Ambiguous`] if several files match in the first
+    /// location that has any match.
     pub fn resolve_from_dir(
         &self,
         base_dir: &Path,
         target: &str,
         kind: ResolveKind,
     ) -> Result<PathBuf, ResolveError> {
-        let resolved = self.resolve_uncached(base_dir, target, kind);
-
-        resolved.ok_or_else(|| ResolveError::NotFound {
+        let not_found = || ResolveError::NotFound {
             base: base_dir.to_path_buf(),
             target: target.to_string(),
-        })
-    }
+        };
 
-    /// Performs resolution (directory listings are cached, results are not).
-    fn resolve_uncached(
-        &self,
-        base_dir: &Path,
-        target: &str,
-        kind: ResolveKind,
-    ) -> Option<PathBuf> {
-        if let Some(package_path) = target.strip_prefix('~') {
-            return self
-                .resolve_in_load_paths(base_dir, package_path, kind)
-                .or_else(|| self.resolve_in_node_modules(base_dir, package_path, kind));
+        let path = url_to_path(target).ok_or_else(not_found)?;
+        if path.is_empty() {
+            return Err(not_found());
         }
 
-        self.try_resolve_in_dir(base_dir, target, kind)
-            .or_else(|| self.resolve_in_load_paths(base_dir, target, kind))
+        let lookup = match path.strip_prefix('~') {
+            Some(package) => match self.in_load_paths(base_dir, package, kind) {
+                Ok(None) => self.in_node_modules(base_dir, package, kind),
+                other => other,
+            },
+            None => match self.in_dir(base_dir, &path, kind) {
+                Ok(None) => self.in_load_paths(base_dir, &path, kind),
+                other => other,
+            },
+        };
+
+        match lookup {
+            Ok(Some(found)) => Ok(found),
+            Ok(None) => Err(not_found()),
+            Err(candidates) => Err(ResolveError::Ambiguous {
+                target: target.to_string(),
+                candidates,
+            }),
+        }
     }
 
     /// Tries every configured load path in order.
-    fn resolve_in_load_paths(
-        &self,
-        base_dir: &Path,
-        target: &str,
-        kind: ResolveKind,
-    ) -> Option<PathBuf> {
-        self.config.load_paths.iter().find_map(|load_path| {
+    fn in_load_paths(&self, base_dir: &Path, path: &str, kind: ResolveKind) -> Lookup {
+        for load_path in &self.config.load_paths {
             let load_dir = if load_path.is_absolute() {
                 load_path.clone()
             } else {
                 base_dir.join(load_path)
             };
-            self.try_resolve_in_dir(&load_dir, target, kind)
-        })
+            if let Some(found) = self.in_dir(&load_dir, path, kind)? {
+                return Ok(Some(found));
+            }
+        }
+        Ok(None)
     }
 
-    /// Tries `node_modules/<target>` in `base_dir` and each of its ancestors.
-    fn resolve_in_node_modules(
-        &self,
-        base_dir: &Path,
-        target: &str,
-        kind: ResolveKind,
-    ) -> Option<PathBuf> {
-        base_dir
-            .ancestors()
-            .find_map(|dir| self.try_resolve_in_dir(&dir.join("node_modules"), target, kind))
+    /// Tries `node_modules/<path>` in `base_dir` and each of its ancestors.
+    fn in_node_modules(&self, base_dir: &Path, path: &str, kind: ResolveKind) -> Lookup {
+        for dir in base_dir.ancestors() {
+            if let Some(found) = self.in_dir(&dir.join("node_modules"), path, kind)? {
+                return Ok(Some(found));
+            }
+        }
+        Ok(None)
     }
 
-    /// Attempts to resolve a target in a specific directory.
-    ///
-    /// Returns `Some(path)` if found, `None` otherwise.
-    fn try_resolve_in_dir(&self, dir: &Path, target: &str, kind: ResolveKind) -> Option<PathBuf> {
-        // Sass URLs always use `/`; push segments one by one so this also
-        // works under Windows verbatim (`\\?\`) prefixes.
-        let mut joined = if target.starts_with('/') {
-            Path::new("/").to_path_buf()
+    /// Resolves a decoded URL path against one directory.
+    fn in_dir(&self, dir: &Path, path: &str, kind: ResolveKind) -> Lookup {
+        // URLs always use `/`; push segments one by one so this also works
+        // under Windows verbatim (`\\?\`) prefixes.
+        let mut joined = if path.starts_with('/') {
+            PathBuf::from("/")
         } else {
             dir.to_path_buf()
         };
-        joined.extend(target.split('/').filter(|segment| !segment.is_empty()));
+        joined.extend(path.split('/').filter(|segment| !segment.is_empty()));
         let joined = normalize_lexically(&joined);
-        let search_dir = joined.parent()?;
-        let file_name = joined.file_name()?.to_str()?;
 
-        let (stem, explicit_ext) = match file_name.rsplit_once('.') {
-            Some((stem, ext))
-                if self.config.extensions.iter().any(|e| e == ext)
-                    || (ext == "css" && kind == ResolveKind::Module) =>
-            {
-                (stem, Some(ext))
-            }
-            _ => (file_name, None),
-        };
-
-        let listing = self.listing(search_dir);
-
-        // Explicit extension: only `name.ext` and `_name.ext` are candidates.
-        if let Some(ext) = explicit_ext {
-            return [format!("{stem}.{ext}"), format!("_{stem}.{ext}")]
-                .into_iter()
-                .find_map(|candidate| listing.file(search_dir, &candidate));
+        let names_directory =
+            path.ends_with('/') || matches!(path.rsplit('/').next(), Some("." | ".."));
+        if names_directory {
+            return self.as_directory(&joined, kind);
         }
 
-        if let Some(found) = self.find_candidate(&listing, search_dir, stem, kind) {
-            return Some(found);
-        }
-
-        // Directory import: `name/index.*` and `name/_index.*`.
-        if listing.dirs.contains(&OsString::from(stem)) {
-            let index_dir = search_dir.join(stem);
-            let index_listing = self.listing(&index_dir);
-            return self.find_candidate(&index_listing, &index_dir, "index", kind);
-        }
-
-        None
+        self.import_path(&joined, kind)
     }
 
-    /// Finds the first existing candidate file for `stem` in a listed directory.
-    fn find_candidate(
-        &self,
-        listing: &DirListing,
-        dir: &Path,
-        stem: &str,
-        kind: ResolveKind,
-    ) -> Option<PathBuf> {
-        if listing.files.is_empty() {
-            return None;
-        }
+    /// Dart's `resolveImportPath` for a path that may name a file or directory.
+    fn import_path(&self, path: &Path, kind: ResolveKind) -> Lookup {
+        let (Some(dir), Some(name)) = (path.parent(), path.file_name().and_then(OsStr::to_str))
+        else {
+            return Ok(None);
+        };
 
-        let try_name = |name: String| listing.file(dir, &name);
+        if let Some((stem, ext)) = name.rsplit_once('.') {
+            if self.is_known_extension(ext) {
+                if kind == ResolveKind::Import {
+                    let import_only = format!("{stem}.import.{ext}");
+                    if let Some(found) = exactly_one(self.try_path(dir, &import_only))? {
+                        return Ok(Some(found));
+                    }
+                }
+                return exactly_one(self.try_path(dir, name));
+            }
+        }
 
         if kind == ResolveKind::Import {
-            for ext in &self.config.extensions {
-                if let Some(found) = try_name(format!("{stem}.import.{ext}"))
-                    .or_else(|| try_name(format!("_{stem}.import.{ext}")))
-                {
-                    return Some(found);
-                }
+            let import_only = format!("{name}.import");
+            if let Some(found) = exactly_one(self.with_extensions(dir, &import_only))? {
+                return Ok(Some(found));
             }
         }
+        if let Some(found) = exactly_one(self.with_extensions(dir, name))? {
+            return Ok(Some(found));
+        }
 
-        for ext in &self.config.extensions {
-            if let Some(found) =
-                try_name(format!("{stem}.{ext}")).or_else(|| try_name(format!("_{stem}.{ext}")))
-            {
-                return Some(found);
+        self.as_directory(path, kind)
+    }
+
+    /// Resolves `path` as a directory containing an `index` file.
+    fn as_directory(&self, path: &Path, kind: ResolveKind) -> Lookup {
+        let is_dir = match (path.parent(), path.file_name()) {
+            (Some(parent), Some(name)) => self.listing(parent).dirs.contains(name),
+            _ => path.is_dir(),
+        };
+        if !is_dir {
+            return Ok(None);
+        }
+
+        if kind == ResolveKind::Import {
+            if let Some(found) = exactly_one(self.with_extensions(path, "index.import"))? {
+                return Ok(Some(found));
             }
         }
+        exactly_one(self.with_extensions(path, "index"))
+    }
 
-        if kind == ResolveKind::Module {
-            return try_name(format!("{stem}.css")).or_else(|| try_name(format!("_{stem}.css")));
+    /// Candidates for `base` with every Sass extension, else with `.css`.
+    fn with_extensions(&self, dir: &Path, base: &str) -> Vec<PathBuf> {
+        let mut found: Vec<PathBuf> = self
+            .config
+            .extensions
+            .iter()
+            .filter(|ext| ext.as_str() != "css")
+            .flat_map(|ext| self.try_path(dir, &format!("{base}.{ext}")))
+            .collect();
+        if found.is_empty() {
+            found = self.try_path(dir, &format!("{base}.css"));
         }
+        found
+    }
 
-        None
+    /// Existing files among `_name` and `name` in `dir`.
+    fn try_path(&self, dir: &Path, name: &str) -> Vec<PathBuf> {
+        let listing = self.listing(dir);
+        [format!("_{name}"), name.to_string()]
+            .into_iter()
+            .filter(|candidate| listing.files.contains(OsStr::new(candidate)))
+            .map(|candidate| dir.join(candidate))
+            .collect()
+    }
+
+    /// Returns `true` for extensions that are loaded as-is when written explicitly.
+    fn is_known_extension(&self, ext: &str) -> bool {
+        ext == "css" || self.config.extensions.iter().any(|e| e == ext)
     }
 
     /// Returns the cached listing of `dir`, reading it on first access.
@@ -391,6 +401,41 @@ impl Default for Resolver {
     }
 }
 
+/// Dart's `_exactlyOne`: no match, one match, or an ambiguity.
+fn exactly_one(mut candidates: Vec<PathBuf>) -> Lookup {
+    match candidates.len() {
+        0 => Ok(None),
+        1 => Ok(candidates.pop()),
+        _ => Err(candidates),
+    }
+}
+
+/// Converts a Sass URL into a decoded path.
+///
+/// Drops `?query` and `#fragment` and percent-decodes the rest. Returns
+/// `None` for invalid percent-encoding or non-UTF-8 results.
+fn url_to_path(url: &str) -> Option<String> {
+    let path = url.split(['?', '#']).next().unwrap_or_default();
+    if !path.contains('%') {
+        return Some(path.to_string());
+    }
+
+    let bytes = path.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = std::str::from_utf8(bytes.get(i + 1..i + 3)?).ok()?;
+            decoded.push(u8::from_str_radix(hex, 16).ok()?);
+            i += 3;
+        } else {
+            decoded.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(decoded).ok()
+}
+
 /// Reads a directory into a [`DirListing`], following symlinks.
 fn read_listing(dir: &Path) -> DirListing {
     let mut listing = DirListing::default();
@@ -399,14 +444,11 @@ fn read_listing(dir: &Path) -> DirListing {
         return listing;
     };
 
-    listing.canonical = dunce::canonicalize(dir).ok();
-
     for entry in entries.flatten() {
         let Ok(mut file_type) = entry.file_type() else {
             continue;
         };
-        let is_symlink = file_type.is_symlink();
-        if is_symlink {
+        if file_type.is_symlink() {
             match fs::metadata(entry.path()) {
                 Ok(meta) => file_type = meta.file_type(),
                 Err(_) => continue,
@@ -415,7 +457,7 @@ fn read_listing(dir: &Path) -> DirListing {
         if file_type.is_dir() {
             listing.dirs.insert(entry.file_name());
         } else if file_type.is_file() {
-            listing.files.insert(entry.file_name(), is_symlink);
+            listing.files.insert(entry.file_name());
         }
     }
 
@@ -423,7 +465,7 @@ fn read_listing(dir: &Path) -> DirListing {
 }
 
 /// Lexically resolves `.` and `..` components without touching the filesystem.
-fn normalize_lexically(path: &Path) -> PathBuf {
+pub(crate) fn normalize_lexically(path: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for component in path.components() {
         match component {
@@ -438,7 +480,6 @@ fn normalize_lexically(path: &Path) -> PathBuf {
     }
     out
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -555,18 +596,113 @@ mod tests {
     }
 
     #[test]
-    fn resolve_css_only_for_module_rules() {
+    fn resolve_css_fallback_for_every_rule() {
         let temp = TempDir::new().unwrap();
         fs::write(temp.path().join("normalize.css"), "").unwrap();
 
         let resolver = Resolver::default();
+        for kind in [ResolveKind::Module, ResolveKind::Import] {
+            assert!(resolver
+                .resolve_from_dir(temp.path(), "normalize", kind)
+                .unwrap()
+                .ends_with("normalize.css"));
+        }
+    }
+
+    #[test]
+    fn css_file_wins_over_directory_index() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("foo.css"), "").unwrap();
+        fs::create_dir_all(temp.path().join("foo")).unwrap();
+        fs::write(temp.path().join("foo/_index.scss"), "").unwrap();
+
+        let resolver = Resolver::default();
         assert!(resolver
-            .resolve_from_dir(temp.path(), "normalize", ResolveKind::Module)
+            .resolve_from_dir(temp.path(), "foo", ResolveKind::Import)
             .unwrap()
-            .ends_with("normalize.css"));
+            .ends_with("foo.css"));
+    }
+
+    #[test]
+    fn explicit_extension_prefers_import_only_file_for_imports() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("_a.scss"), "").unwrap();
+        fs::write(temp.path().join("_a.import.scss"), "").unwrap();
+        fs::write(temp.path().join("a.import.css"), "").unwrap();
+
+        let resolver = Resolver::default();
         assert!(resolver
-            .resolve_from_dir(temp.path(), "normalize", ResolveKind::Import)
-            .is_err());
+            .resolve_from_dir(temp.path(), "a.scss", ResolveKind::Import)
+            .unwrap()
+            .ends_with("_a.import.scss"));
+        assert!(resolver
+            .resolve_from_dir(temp.path(), "a.scss", ResolveKind::Module)
+            .unwrap()
+            .ends_with("_a.scss"));
+    }
+
+    #[test]
+    fn ambiguous_candidates_are_an_error() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("a.scss"), "").unwrap();
+        fs::write(temp.path().join("_a.scss"), "").unwrap();
+        fs::write(temp.path().join("_b.scss"), "").unwrap();
+        fs::write(temp.path().join("b.sass"), "").unwrap();
+
+        let resolver = Resolver::default();
+        for target in ["a", "b", "a.scss"] {
+            let error = resolver
+                .resolve_from_dir(temp.path(), target, ResolveKind::Module)
+                .unwrap_err();
+            assert!(
+                matches!(error, ResolveError::Ambiguous { ref candidates, .. } if candidates.len() == 2),
+                "{target}"
+            );
+        }
+    }
+
+    #[test]
+    fn directory_targets_only_resolve_index_files() {
+        let temp = TempDir::new().unwrap();
+        fs::create_dir_all(temp.path().join("src/foo")).unwrap();
+        fs::write(temp.path().join("_src.scss"), "").unwrap();
+        fs::write(temp.path().join("src/_index.scss"), "").unwrap();
+        fs::write(temp.path().join("src/_foo.scss"), "").unwrap();
+        fs::write(temp.path().join("src/foo/_index.scss"), "").unwrap();
+        fs::write(temp.path().join("src/_bar.scss"), "").unwrap();
+
+        let resolver = Resolver::default();
+        let src = temp.path().join("src");
+        let resolve = |target: &str| resolver.resolve_from_dir(&src, target, ResolveKind::Module);
+
+        assert!(resolve(".").unwrap().ends_with("src/_index.scss"));
+        assert!(resolve("foo/").unwrap().ends_with("foo/_index.scss"));
+        assert!(resolve("foo").unwrap().ends_with("src/_foo.scss"));
+        assert!(resolve("bar/").is_err());
+        assert!(resolve("").is_err());
+        assert!(resolver
+            .resolve_from_dir(&src.join("foo"), "..", ResolveKind::Module)
+            .unwrap()
+            .ends_with("src/_index.scss"));
+    }
+
+    #[test]
+    fn targets_are_urls() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("_a b.scss"), "").unwrap();
+        fs::write(temp.path().join("_ñ.scss"), "").unwrap();
+        fs::write(temp.path().join("_c.scss"), "").unwrap();
+
+        let resolver = Resolver::default();
+        let resolve =
+            |target: &str| resolver.resolve_from_dir(temp.path(), target, ResolveKind::Module);
+
+        assert!(resolve("a%20b").unwrap().ends_with("_a b.scss"));
+        assert!(resolve("%C3%B1").unwrap().ends_with("_ñ.scss"));
+        assert!(resolve("c?query").unwrap().ends_with("_c.scss"));
+        assert!(resolve("c#fragment").unwrap().ends_with("_c.scss"));
+        assert!(resolve("c%zz").is_err());
+        assert!(resolve("%FF").is_err());
     }
 
     #[test]
@@ -651,20 +787,6 @@ mod tests {
     }
 
     #[test]
-    fn resolve_prefers_scss_over_sass() {
-        let temp = TempDir::new().unwrap();
-
-        fs::write(temp.path().join("styles.scss"), "").unwrap();
-        fs::write(temp.path().join("styles.sass"), "").unwrap();
-        fs::write(temp.path().join("main.scss"), "").unwrap();
-
-        let resolver = Resolver::default();
-        let result = resolver.resolve(&temp.path().join("main.scss"), "styles");
-
-        assert!(result.unwrap().ends_with("styles.scss"));
-    }
-
-    #[test]
     fn resolve_from_directory_base() {
         let temp = TempDir::new().unwrap();
         setup_test_files(temp.path());
@@ -675,7 +797,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn resolve_symlinked_file_to_its_target() {
+    fn resolve_symlinks_lexically_like_dart_sass() {
         let temp = TempDir::new().unwrap();
         fs::create_dir_all(temp.path().join("shared")).unwrap();
         fs::write(temp.path().join("shared/_real.scss"), "").unwrap();
@@ -690,7 +812,9 @@ mod tests {
             .resolve_from_dir(temp.path(), "link", ResolveKind::Module)
             .unwrap();
 
-        assert!(resolved.ends_with("shared/_real.scss"));
+        // The link path is kept, so the linked file's own relative imports
+        // resolve from the link's directory (Dart Sass semantics).
+        assert_eq!(resolved, temp.path().join("_link.scss"));
     }
 
     #[cfg(unix)]

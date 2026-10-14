@@ -2,7 +2,7 @@
 name = "sass-dep"
 version = "0.2.0"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.79"
 authors = ["Emilio Dominguez"]
 description = "Rust CLI for mapping Sass and SCSS dependencies, finding circular imports and enforcing architecture rules, with graph exports and an interactive visualizer."
 license = "MIT"

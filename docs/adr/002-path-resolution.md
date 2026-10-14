@@ -101,3 +101,15 @@ impl Resolver {
 Resolution originally issued one `stat` per candidate (up to 8 per directory searched) and a `realpath` per resolved import. The resolver now caches, per directory, a listing of files and sub-directories plus the directory's canonical path (`RwLock<HashMap<PathBuf, Arc<DirListing>>>`, shared across the parallel builder threads). Candidate checks become hash lookups and a resolved path is `canonical_dir.join(name)`; only symlinked files still pay for a `realpath`. Paths are canonicalized with `dunce` so Windows does not produce `\\?\` verbatim paths, and targets are split on `/` explicitly.
 
 Load paths given on the CLI or in the config are resolved against `--root`.
+
+## Update: Dart Sass parity (v0.2.0)
+
+An adversarial comparison against Dart Sass's `loadedUrls` found several divergences, so resolution now follows `resolveImportPath` from Dart Sass's `lib/src/importer/utils.dart` literally:
+
+- `.sass`/`.scss` candidates (plain and partial) are collected together and must match exactly one file; ambiguity is reported (`reason: "ambiguous: ..."`) instead of silently picking one. `.css` is the fallback for `@use`, `@forward` **and** `@import`, including `foo.import.css`.
+- Explicit extensions still honour import-only files for `@import`.
+- Targets are URLs (query/fragment dropped, percent-decoded); `""` never resolves; `"."`, `".."` and trailing-slash targets only resolve to index files.
+- Paths are lexical. Dart Sass does not resolve symlinks, so a symlinked file resolves its relative imports from the link's directory; canonicalizing paths made sass-dep load different files.
+- Plain `.css` files are never scanned for dependencies.
+
+`scripts/sass-parity.sh` runs the comparison on Bootstrap, Bulma, Foundation and Angular Material in CI.

@@ -182,6 +182,10 @@ pub struct UnresolvedImport {
     pub directive_type: DirectiveType,
     /// Source location of the directive.
     pub location: Location,
+    /// Why resolution failed, when it is not simply "not found"
+    /// (e.g. `ambiguous: a.scss, _a.scss`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 #[cfg(test)]

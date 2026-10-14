@@ -274,7 +274,7 @@ fn parse_single_quotes() {
 }
 
 #[test]
-fn parse_case_insensitive() {
+fn parse_is_case_sensitive_like_dart_sass() {
     let input = r#"
 @USE "upper";
 @Use "mixed";
@@ -282,7 +282,8 @@ fn parse_case_insensitive() {
 "#;
 
     let directives = Parser::parse(input).unwrap();
-    assert_eq!(directives.len(), 3);
+    // `@USE` / `@Use` are unknown CSS at-rules in Dart Sass.
+    assert_eq!(directives.len(), 1);
 }
 
 #[test]

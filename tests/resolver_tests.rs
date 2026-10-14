@@ -171,37 +171,23 @@ fn resolve_prefers_relative_over_load_path() {
 }
 
 #[test]
-fn resolve_prefers_scss_over_sass() {
+fn resolve_reports_ambiguity_like_dart_sass() {
     let temp = TempDir::new().unwrap();
 
     fs::write(temp.path().join("styles.scss"), "").unwrap();
     fs::write(temp.path().join("styles.sass"), "").unwrap();
+    fs::write(temp.path().join("other.scss"), "").unwrap();
+    fs::write(temp.path().join("_other.scss"), "").unwrap();
     fs::write(temp.path().join("main.scss"), "").unwrap();
 
     let resolver = Resolver::default();
-    let result = resolver.resolve(&temp.path().join("main.scss"), "styles");
-
-    assert!(result.is_ok());
-    let resolved = result.unwrap();
-    assert!(resolved.ends_with("styles.scss"));
-}
-
-#[test]
-fn resolve_prefers_non_partial_over_partial() {
-    let temp = TempDir::new().unwrap();
-
-    fs::write(temp.path().join("styles.scss"), "").unwrap();
-    fs::write(temp.path().join("_styles.scss"), "").unwrap();
-    fs::write(temp.path().join("main.scss"), "").unwrap();
-
-    let resolver = Resolver::default();
-    let result = resolver.resolve(&temp.path().join("main.scss"), "styles");
-
-    assert!(result.is_ok());
-    let resolved = result.unwrap();
-    // Should prefer non-partial
-    assert!(resolved.ends_with("styles.scss"));
-    assert!(!resolved.to_string_lossy().contains("_styles"));
+    for target in ["styles", "other"] {
+        let result = resolver.resolve(&temp.path().join("main.scss"), target);
+        assert!(
+            matches!(result, Err(ResolveError::Ambiguous { .. })),
+            "{target}: {result:?}"
+        );
+    }
 }
 
 #[test]

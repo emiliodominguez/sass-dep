@@ -97,7 +97,11 @@
 				"from": { "type": "string" },
 				"target": { "type": "string" },
 				"directive_type": { "$ref": "#/$defs/directive" },
-				"location": { "$ref": "#/$defs/location" }
+				"location": { "$ref": "#/$defs/location" },
+				"reason": {
+					"type": "string",
+					"description": "Why resolution failed when it is not simply \"not found\", e.g. \"ambiguous: a.scss, _a.scss\"."
+				}
 			}
 		},
 		"statistics": {

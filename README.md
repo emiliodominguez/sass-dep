@@ -200,9 +200,15 @@ message = "Move shared styles to src/shared"
 
 ## Resolution
 
-For `@use "foo"` in `src/main.scss`, sass-dep tries, in order: `foo.scss`, `_foo.scss`, `foo.sass`, `_foo.sass`, `foo.css`/`_foo.css` (module rules only), then `foo/index.*` and `foo/_index.*` — first next to the importing file, then in each load path. `@import` prefers import-only files (`foo.import.scss`) and never loads `.css`. `"~pkg/path"` is looked up in the load paths and then in `node_modules` directories walking up from the importing file.
+Resolution mirrors Dart Sass's filesystem importer, and CI checks it file-for-file against Dart Sass on Bootstrap, Bulma, Foundation and Angular Material (`scripts/sass-parity.sh`). For `@use "foo"` in `src/main.scss`, first next to the importing file, then in each load path:
 
-Skipped on purpose: built-in modules (`sass:math`), `pkg:` URLs, plain CSS imports (`url(...)`, `*.css`, remote URLs, imports with media queries). Anything else that fails to resolve is reported as a warning and in `analysis.unresolved`.
+1. `foo.scss`, `_foo.scss`, `foo.sass`, `_foo.sass` — these must match **exactly one** file; several matches are an ambiguity (reported in `analysis.unresolved` with a `reason`, as Dart Sass refuses to compile it)
+2. otherwise `foo.css` / `_foo.css`
+3. otherwise `foo/index.*` / `foo/_index.*` with the same rules
+
+`@import` first tries import-only files (`foo.import.scss`, also with an explicit extension). Targets are URLs: `?query`/`#fragment` are ignored and `%XX` is decoded; `"."`, `".."` and `"foo/"` only resolve to index files. Paths are lexical, so a symlinked file resolves its own imports relative to the link, exactly like Dart Sass. `"~pkg/path"` is looked up in the load paths and then in `node_modules` directories walking up from the importing file.
+
+Skipped on purpose: built-in modules (`sass:math`), `pkg:` URLs, plain CSS imports (`url(...)`, `*.css`, remote URLs, interpolated URLs, imports with media queries, `supports()` or `layer()`), and `@import` inside plain `.css` files. Anything else that fails to resolve is reported as a warning and in `analysis.unresolved`.
 
 ## JSON Schema
 

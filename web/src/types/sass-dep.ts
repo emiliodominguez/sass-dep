@@ -64,6 +64,8 @@ export interface UnresolvedImport {
 	directive_type: DirectiveType;
 	/** Source location of the directive in the `from` file */
 	location: EdgeLocation;
+	/** Why resolution failed when it is not simply "not found" (e.g. `ambiguous: a.scss, _a.scss`) */
+	reason?: string;
 }
 
 /** Summary statistics */

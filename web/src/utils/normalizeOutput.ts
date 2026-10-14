@@ -168,6 +168,7 @@ function normalizeUnresolved(raw: unknown, index: number): UnresolvedImport {
 		target: raw["target"],
 		directive_type: toDirectiveType(raw["directive_type"], where),
 		location: toLocation(raw["location"]),
+		...(typeof raw["reason"] === "string" ? { reason: raw["reason"] } : {}),
 	};
 }
 

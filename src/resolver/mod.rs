@@ -36,4 +36,5 @@
 
 mod path;
 
+pub(crate) use path::normalize_lexically;
 pub use path::{ResolveError, ResolveKind, Resolver, ResolverConfig};

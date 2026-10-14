@@ -90,6 +90,7 @@ function UnresolvedList({ entries, onFocusNode }: UnresolvedListProps) {
 					<code className={styles["issue-target"]}>{entry.target}</code>
 					<span className={styles["issue-meta"]}>
 						@{entry.directive_type} · {entry.location.line}:{entry.location.column}
+						{entry.reason ? ` · ${entry.reason}` : ""}
 					</span>
 				</li>
 			))}
