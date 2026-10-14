@@ -2,6 +2,7 @@
 
 [![Rust: 2021 edition](https://img.shields.io/badge/Rust-2021-ce794a?style=for-the-badge&labelColor=161b22&logo=rust&logoColor=white)](./Cargo.toml)
 [![SCSS: dependencies](https://img.shields.io/badge/SCSS-dependencies-cc6699?style=for-the-badge&labelColor=161b22&logo=sass&logoColor=white)](#overview)
+[![CI](https://img.shields.io/github/actions/workflow/status/emiliodominguez/sass-dep/ci.yml?branch=main&style=for-the-badge&labelColor=161b22&logo=githubactions&logoColor=white&label=CI)](https://github.com/emiliodominguez/sass-dep/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-3da639?style=for-the-badge&labelColor=161b22&logo=opensourceinitiative&logoColor=white)](./LICENSE)
 
 **Understand how your SCSS files connect.**
@@ -10,188 +11,217 @@ Map dependencies, find circular imports and check architecture rules with a Rust
 
 ## Overview
 
-`sass-dep` parses SCSS files to extract `@use`, `@forward`, and `@import` directives, resolves paths according to Sass conventions, and builds a directed dependency graph that can be analyzed for cycles, metrics, and other structural properties.
+`sass-dep` parses SCSS files to extract `@use`, `@forward`, and `@import` directives, resolves paths according to Sass conventions, and builds a directed dependency graph that can be analyzed for cycles, metrics, impact and architecture rules.
 
 ## Features
 
--   **Dependency Graph Construction** - Build a complete file-level dependency graph from entry points
--   **Cycle Detection** - Identify circular dependencies using Tarjan's algorithm
--   **Metrics Calculation** - Compute fan-in, fan-out, depth, and transitive dependencies
--   **Multiple Output Formats** - Export to JSON, Graphviz DOT, Mermaid, or D2
--   **CI Integration** - Check command for enforcing constraints in pipelines
--   **Interactive Web Visualizer** - React-based UI for exploring dependency graphs
+-   **Fast** - Single-pass byte scanner, parallel graph construction and cached directory listings: ~20k files / 120k imports analyzed in well under a second
+-   **Sass-accurate resolution** - Partials, index files, `.import.scss` files, explicit extensions, CSS modules, load paths and webpack-style `~package` imports
+-   **Cycle detection** - Tarjan SCCs decomposed into ordered, real import cycles (self-imports included)
+-   **Metrics** - Fan-in, fan-out, depth, transitive dependencies and transitive dependents (blast radius)
+-   **CI checks** - Cycles, depth/fan limits, orphans, unresolved imports, legacy `@import` and custom architecture rules, with text, JSON or GitHub annotation output
+-   **Impact analysis** - `impact` lists every file and entry point affected by a change; `why` explains how a file is reached
+-   **Multiple output formats** - JSON (versioned schema), Graphviz DOT, Mermaid and D2
+-   **Interactive web visualizer** - React-based UI embedded in the binary
 
 ![Web Visualizer Screenshot](docs/screenshot.png)
 
 ## Installation
 
-### From Source
-
 ```bash
 git clone https://github.com/emiliodominguez/sass-dep.git
 cd sass-dep
+./setup.sh                  # git hooks + builds the web visualizer (needs npm)
 cargo install --path .
 ```
 
-### Using Cargo
+Or directly from GitHub (the visualizer is embedded only if `web/dist` was built first; everything else works without it):
 
 ```bash
-cargo install sass-dep
+cargo install --git https://github.com/emiliodominguez/sass-dep
 ```
 
 ## Quick Start
 
-Analyze an SCSS project:
-
 ```bash
-# Basic analysis with JSON output
-sass-dep analyze src/main.scss
+# Create .sass-dep.toml with auto-detected entry points
+sass-dep init
 
-# Output to file
-sass-dep analyze src/main.scss --output deps.json
+# Analyze (entry points from the config, or pass them explicitly)
+sass-dep analyze src/main.scss -o deps.json
 
-# Include orphan files
-sass-dep analyze src/main.scss --include-orphans
+# Explore interactively
+sass-dep analyze --web
 
-# Check for issues in CI
-sass-dep check src/main.scss --no-cycles --max-depth 10
+# Enforce constraints in CI
+sass-dep check --no-cycles --no-unresolved --max-depth 10
+
+# Which bundles does this change affect?
+sass-dep impact $(git diff --name-only main) --format json
+
+# Why is this file part of the build?
+sass-dep why src/components/_button.scss
 ```
 
 ## CLI Reference
 
 ### Global Options
 
-| Option              | Short | Description                                  |
-| ------------------- | ----- | -------------------------------------------- |
-| `--root <DIR>`      |       | Project root directory (default: `.`)        |
-| `--config <FILE>`   |       | Config file path (default: `.sass-dep.toml`) |
-| `--load-path <DIR>` | `-I`  | Add Sass load path (can be repeated)         |
-| `--quiet`           | `-q`  | Suppress non-error output                    |
-| `--verbose`         | `-v`  | Increase verbosity (-v, -vv, -vvv)           |
+| Option              | Short | Description                                                         |
+| ------------------- | ----- | ------------------------------------------------------------------- |
+| `--root <DIR>`      |       | Project root directory (default: `.`)                               |
+| `--config <FILE>`   |       | Config file (default: `<root>/.sass-dep.toml` when present)          |
+| `--load-path <DIR>` | `-I`  | Add Sass load path, relative to `--root` (repeatable)                |
+| `--quiet`           | `-q`  | Suppress non-error output                                           |
+| `--verbose`         | `-v`  | `-v`: timings and all unresolved imports                            |
 
-### Commands
+Entry points can be given as arguments or via `entry_points` in the config file. File IDs in every output are paths relative to `--root`, with `/` separators.
 
-#### `analyze`
+### `analyze`
 
-Build dependency graph and run analysis.
+Build the dependency graph and output the analysis.
 
 ```bash
-sass-dep analyze [OPTIONS] <ENTRY_POINTS>...
+sass-dep analyze [OPTIONS] [ENTRY_POINTS]...
 ```
 
-**Options:**
-
-| Option              | Short | Description                                   |
-| ------------------- | ----- | --------------------------------------------- |
-| `--output <FILE>`   | `-o`  | Output file (default: stdout)                 |
-| `--format <FORMAT>` |       | Output format: `json` (default)               |
-| `--include-orphans` |       | Include files not reachable from entry points |
-| `--web`             |       | Start interactive web visualization server    |
-| `--port <PORT>`     |       | Port for web server (default: 3000)           |
-
-**Examples:**
+| Option              | Short | Description                                              |
+| ------------------- | ----- | -------------------------------------------------------- |
+| `--output <FILE>`   | `-o`  | Output file (default: stdout)                            |
+| `--format <FORMAT>` |       | `json` (default), `dot`, `mermaid` or `d2`               |
+| `--include-orphans` |       | Also include files not reachable from any entry point    |
+| `--web`             |       | Start the interactive visualizer                         |
+| `--port <PORT>`     |       | Visualizer port (default: 3000; next free port if busy)  |
+| `--no-open`         |       | Do not open the browser automatically                    |
 
 ```bash
-# Analyze single entry point
-sass-dep analyze src/main.scss
-
-# Analyze multiple entry points
-sass-dep analyze src/app.scss src/admin.scss
-
-# With load paths
-sass-dep analyze -I node_modules -I vendor src/main.scss
-
-# Output to file
-sass-dep analyze src/main.scss -o analysis.json
-
-# Start web visualizer
-sass-dep analyze src/main.scss --web
-
-# Web visualizer on custom port
+sass-dep analyze src/app.scss src/admin.scss            # multiple entry points
+sass-dep analyze -I node_modules src/main.scss          # with load paths
+sass-dep analyze src/main.scss --format dot | dot -Tsvg > deps.svg
 sass-dep analyze src/main.scss --web --port 8080
 ```
 
-#### `check`
+Orphan discovery honours `.gitignore`/`.ignore`, skips hidden files and `node_modules`, and parses the orphans too, so their own dependencies show up in the graph.
 
-Verify graph integrity (CI mode). Exits with code 1 if constraints are violated.
+### `check`
+
+Verify graph integrity and architecture rules. Exits with code `1` on violations. Flags are merged with the `[check]` and `[[rules]]` config sections.
 
 ```bash
-sass-dep check [OPTIONS] <ENTRY_POINTS>...
+sass-dep check [OPTIONS] [ENTRY_POINTS]...
 ```
 
-**Options:**
-
-| Option              | Description                                |
-| ------------------- | ------------------------------------------ |
-| `--no-cycles`       | Fail if circular dependencies are detected |
-| `--max-depth <N>`   | Maximum allowed depth in dependency tree   |
-| `--max-fan-out <N>` | Maximum allowed direct dependencies        |
-| `--max-fan-in <N>`  | Maximum allowed dependents                 |
-
-**Examples:**
+| Option                | Description                                                   |
+| --------------------- | ------------------------------------------------------------- |
+| `--no-cycles`         | Fail on circular dependencies                                 |
+| `--max-depth <N>`     | Maximum depth in the dependency tree                          |
+| `--max-fan-out <N>`   | Maximum direct dependencies per file                          |
+| `--max-fan-in <N>`    | Maximum direct dependents per file                            |
+| `--no-orphans`        | Fail on files unreachable from every entry point              |
+| `--no-unresolved`     | Fail on imports that cannot be resolved                       |
+| `--no-legacy-imports` | Fail on `@import` (deprecated, removed in Dart Sass 3.0)      |
+| `--format <FORMAT>`   | `text` (default, stderr), `json` or `github` (stdout)         |
 
 ```bash
-# Fail on cycles
-sass-dep check --no-cycles src/main.scss
-
-# Enforce depth limit
-sass-dep check --max-depth 5 src/main.scss
-
-# Multiple constraints
 sass-dep check --no-cycles --max-depth 10 --max-fan-out 15 src/main.scss
 ```
 
-#### `export`
+GitHub Actions annotations:
 
-Convert JSON analysis to visualization formats.
-
-```bash
-sass-dep export [OPTIONS] <INPUT>
+```yaml
+- run: sass-dep check --format github
 ```
 
-**Options:**
+### `impact`
 
-| Option              | Description                                            |
-| ------------------- | ------------------------------------------------------ |
-| `--format <FORMAT>` | Export format: `dot`, `mermaid`, `d2` (default: `dot`) |
-
-**Examples:**
+List every file and entry point that (transitively) depends on the given files. Non-Sass paths are ignored, so a raw `git diff` works.
 
 ```bash
-# Export to Graphviz DOT
-sass-dep export analysis.json --format dot > graph.dot
-dot -Tpng graph.dot -o graph.png
+sass-dep impact [OPTIONS] <FILES>...    # --entry/-e <FILE> (repeatable), --format text|json
+```
 
-# Export to Mermaid
+### `why`
+
+Print the shortest import chain from an entry point to a file.
+
+```bash
+$ sass-dep why src/base/_typography.scss -e main.scss
+main.scss
+└─ @use (line 1) → base/_index.scss
+   └─ @forward (line 2) → base/_typography.scss
+```
+
+### `export`
+
+Convert a saved JSON analysis (any 1.x schema) to `dot` (default), `mermaid` or `d2`. Use `-` to read from stdin and `-o` to write to a file.
+
+```bash
 sass-dep export analysis.json --format mermaid > graph.mmd
-
-# Export to D2
-sass-dep export analysis.json --format d2 > graph.d2
-d2 graph.d2 graph.svg
+sass-dep analyze src/main.scss | sass-dep export - --format d2 | d2 - graph.svg
 ```
+
+### `init`
+
+Write a starter `.sass-dep.toml`. Entry points are detected as non-partial files that nothing else imports. `--force` overwrites an existing file.
+
+## Configuration
+
+`.sass-dep.toml` in the project root (or `--config <FILE>`). Every key is optional; CLI flags take precedence; unknown keys are rejected.
+
+```toml
+entry_points = ["src/main.scss", "src/admin.scss"]
+load_paths = ["node_modules"]        # relative to the project root
+extensions = ["scss", "sass"]        # resolution order
+include_orphans = true
+exclude = ["**/legacy/**"]           # skipped during orphan discovery
+
+[thresholds]                         # flags are set when value >= threshold
+high_fan_in = 5
+high_fan_out = 10
+
+[check]
+no_cycles = true
+no_unresolved = true
+no_legacy_imports = false
+no_orphans = false
+max_depth = 10
+max_fan_out = 15
+max_fan_in = 30
+
+# Architecture rules: files matching `from` must not import files matching `deny`.
+# Globs match file IDs; `*` stays within a directory, `**` crosses directories.
+[[rules]]
+name = "components are page-agnostic"
+from = "src/components/**"
+deny = ["src/pages/**", "src/layouts/**"]
+allow = ["src/pages/_tokens.scss"]   # optional exceptions
+message = "Move shared styles to src/shared"
+```
+
+## Resolution
+
+For `@use "foo"` in `src/main.scss`, sass-dep tries, in order: `foo.scss`, `_foo.scss`, `foo.sass`, `_foo.sass`, `foo.css`/`_foo.css` (module rules only), then `foo/index.*` and `foo/_index.*` — first next to the importing file, then in each load path. `@import` prefers import-only files (`foo.import.scss`) and never loads `.css`. `"~pkg/path"` is looked up in the load paths and then in `node_modules` directories walking up from the importing file.
+
+Skipped on purpose: built-in modules (`sass:math`), `pkg:` URLs, plain CSS imports (`url(...)`, `*.css`, remote URLs, imports with media queries). Anything else that fails to resolve is reported as a warning and in `analysis.unresolved`.
 
 ## JSON Schema
 
-The analysis output follows a versioned JSON schema (v1.0.0):
+`analyze` output follows a versioned schema — [`schema/v1.1.0.json`](schema/v1.1.0.json). Nodes are sorted by ID and edges by `(from, to)`, so the output is diff-friendly.
 
 ```json
 {
-	"$schema": "https://github.com/emiliodominguez/sass-dep/blob/main/schema/v1.0.0.json",
-	"version": "1.0.0",
+	"$schema": "https://raw.githubusercontent.com/emiliodominguez/sass-dep/main/schema/v1.1.0.json",
+	"version": "1.1.0",
 	"metadata": {
-		"generated_at": "2024-01-15T10:30:00Z",
+		"generated_at": "2026-01-15T10:30:00Z",
 		"root": "/project",
-		"sass_dep_version": "0.1.0"
+		"sass_dep_version": "0.2.0",
+		"entry_points": ["src/main.scss"]
 	},
 	"nodes": {
 		"src/main.scss": {
 			"path": "/project/src/main.scss",
-			"metrics": {
-				"fan_in": 0,
-				"fan_out": 3,
-				"depth": 0,
-				"transitive_deps": 5
-			},
+			"metrics": { "fan_in": 0, "fan_out": 3, "depth": 0, "transitive_deps": 5, "transitive_dependents": 0 },
 			"flags": ["entry_point"]
 		}
 	},
@@ -201,11 +231,13 @@ The analysis output follows a versioned JSON schema (v1.0.0):
 			"to": "src/_variables.scss",
 			"directive_type": "use",
 			"location": { "line": 1, "column": 1 },
-			"namespace": "vars"
+			"namespace": "vars",
+			"configured": false
 		}
 	],
 	"analysis": {
-		"cycles": [],
+		"cycles": [["src/_a.scss", "src/_b.scss"]],
+		"unresolved": [{ "from": "src/main.scss", "target": "missing", "directive_type": "use", "location": { "line": 4, "column": 1 } }],
 		"statistics": {
 			"total_files": 10,
 			"total_dependencies": 15,
@@ -214,22 +246,30 @@ The analysis output follows a versioned JSON schema (v1.0.0):
 			"leaf_files": 4,
 			"max_depth": 5,
 			"max_fan_in": 3,
-			"max_fan_out": 4
+			"max_fan_out": 4,
+			"cycle_count": 1,
+			"unresolved_imports": 1,
+			"import_directives": 0
 		}
 	}
 }
 ```
 
+-   `depth` is `null` for files unreachable from every entry point.
+-   Each cycle is an ordered closed path: `cycle[i]` imports `cycle[i + 1]` and the last file imports the first. Every `in_cycle` file appears in at least one cycle.
+-   `transitive_deps` / `transitive_dependents` count files reachable from / reaching a file; files in a cycle count themselves.
+-   Changes from 1.0.0: nullable `depth` (was `usize::MAX`), plus the `transitive_dependents`, `entry_points`, `unresolved`, `cycle_count`, `unresolved_imports` and `import_directives` fields. `export` and the visualizer still read 1.0.0 files.
+
 ### Node Flags
 
-| Flag           | Description                             |
-| -------------- | --------------------------------------- |
-| `entry_point`  | File specified as an entry point        |
-| `leaf`         | File with no dependencies (fan-out = 0) |
-| `orphan`       | File not reachable from any entry point |
-| `high_fan_in`  | Fan-in exceeds threshold (default: 5)   |
-| `high_fan_out` | Fan-out exceeds threshold (default: 10) |
-| `in_cycle`     | File is part of a circular dependency   |
+| Flag           | Description                              |
+| -------------- | ---------------------------------------- |
+| `entry_point`  | File specified as an entry point         |
+| `leaf`         | File with no dependencies (fan-out = 0)  |
+| `orphan`       | File not reachable from any entry point  |
+| `high_fan_in`  | Fan-in ≥ threshold (default: 5)          |
+| `high_fan_out` | Fan-out ≥ threshold (default: 10)        |
+| `in_cycle`     | File is part of a circular dependency    |
 
 ### Edge Types
 
@@ -239,21 +279,18 @@ The analysis output follows a versioned JSON schema (v1.0.0):
 | `forward` | `@forward` directive         |
 | `import`  | `@import` directive (legacy) |
 
-## Configuration
+## Library Usage
 
-Create a `.sass-dep.toml` file in your project root:
+```rust
+use sass_dep::{Analyzer, DependencyGraph, OutputSchema, Resolver};
 
-```toml
-# Load paths for module resolution
-load_paths = ["node_modules", "vendor"]
+let root = std::path::Path::new(".").canonicalize()?;
+let resolver = Resolver::default();
+let mut graph = DependencyGraph::new();
+graph.build_from_entry(&root.join("src/main.scss"), &resolver, &root)?;
+Analyzer::default().analyze(&mut graph);
 
-# File extensions to consider
-extensions = ["scss", "sass"]
-
-# Analysis thresholds
-[thresholds]
-high_fan_in = 5
-high_fan_out = 10
+let schema = OutputSchema::from_graph(&graph, &root);
 ```
 
 ## Exit Codes
@@ -261,7 +298,7 @@ high_fan_out = 10
 | Code | Description                        |
 | ---- | ---------------------------------- |
 | 0    | Success                            |
-| 1    | Check command found violations     |
+| 1    | `check` found violations           |
 | 2    | Invalid arguments or configuration |
 | 3    | File not found or IO error         |
 | 4    | Parse error                        |
@@ -366,7 +403,7 @@ This tool intentionally does not:
 -   Analyze CSS output
 -   Support watch mode
 -   Handle remote imports
--   Support Sass indented syntax
+-   Fully support the Sass indented syntax (`.sass` files are scanned for quoted `@use`/`@forward`/`@import` only)
 -   Handle package imports (`pkg:` protocol)
 
 ## Contributing
@@ -374,9 +411,10 @@ This tool intentionally does not:
 Contributions are welcome! Please:
 
 1. Fork the repository
-2. Run `./setup.sh` to configure git hooks and install dependencies
+2. Run `./setup.sh` to configure git hooks and build the web visualizer
 3. Create a feature branch
-4. Submit a pull request
+4. Make sure `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` and the web checks (`npm run typecheck && npm run lint && npm run build` in `web/`) pass
+5. Submit a pull request
 
 ## License
 
