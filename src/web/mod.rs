@@ -8,14 +8,25 @@
 //! - Hashed Vite assets (`/assets/*`) are served with immutable caching.
 //! - If the port is busy, the next ports are tried.
 //! - Ctrl+C shuts the server down gracefully.
+//!
+//! ## Security
+//!
+//! The server only listens on `127.0.0.1`, but that alone does not stop a
+//! malicious website from reading `/api/data` (which contains absolute
+//! paths and the project structure) through **DNS rebinding**. Every request
+//! must therefore carry a `Host` header naming the loopback address and the
+//! bound port; anything else is rejected with `421 Misdirected Request`.
+//! Responses carry a strict Content-Security-Policy, `nosniff`,
+//! `frame-ancestors 'none'` and `Cross-Origin-Resource-Policy: same-origin`.
 
 use std::net::SocketAddr;
 
 use anyhow::{Context, Result};
 use axum::{
     body::{Body, Bytes},
-    extract::State,
-    http::{header, HeaderValue, Response, StatusCode, Uri},
+    extract::{Request, State},
+    http::{header, HeaderName, HeaderValue, Response, StatusCode, Uri},
+    middleware::{self, Next},
     routing::get,
     Router,
 };
@@ -35,6 +46,23 @@ struct WebAssets;
 
 /// Number of consecutive ports tried when the requested one is busy.
 const PORT_ATTEMPTS: u16 = 10;
+
+/// Content-Security-Policy for every response.
+///
+/// React Flow positions nodes with inline styles and html-to-image exports
+/// through `data:`/`blob:` URLs; everything else is same-origin only.
+const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; script-src 'self'; worker-src 'self' blob:; \
+     style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; \
+     connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+
+/// Security headers attached to every response.
+const SECURITY_HEADERS: [(&str, &str); 5] = [
+    ("content-security-policy", CONTENT_SECURITY_POLICY),
+    ("x-content-type-options", "nosniff"),
+    ("x-frame-options", "DENY"),
+    ("referrer-policy", "no-referrer"),
+    ("cross-origin-resource-policy", "same-origin"),
+];
 
 /// Options for [`serve`].
 #[derive(Debug, Clone, Copy)]
@@ -61,14 +89,15 @@ pub async fn serve(data: OutputSchema, options: ServeOptions) -> Result<()> {
     let payload = Bytes::from(serde_json::to_vec(&data).context("Failed to serialize analysis")?);
     drop(data);
 
+    let listener = bind(options.port).await?;
+    let addr = listener.local_addr()?;
+
     let app = Router::new()
         .route("/api/data", get(api_data))
         .fallback(static_handler)
         .with_state(payload)
-        .layer(CompressionLayer::new());
-
-    let listener = bind(options.port).await?;
-    let addr = listener.local_addr()?;
+        .layer(CompressionLayer::new())
+        .layer(middleware::from_fn_with_state(addr.port(), guard));
     let url = format!("http://{addr}");
 
     if !options.quiet {
@@ -95,6 +124,46 @@ pub async fn serve(data: OutputSchema, options: ServeOptions) -> Result<()> {
         })
         .await
         .context("Server error")
+}
+
+/// Rejects requests whose `Host` is not this server and adds security headers.
+async fn guard(State(port): State<u16>, request: Request, next: Next) -> Response<Body> {
+    let host = request
+        .headers()
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+
+    if !is_loopback_host(host, port) {
+        return Response::builder()
+            .status(StatusCode::MISDIRECTED_REQUEST)
+            .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
+            .body(Body::from(
+                "Unknown host. Open the URL printed by sass-dep.",
+            ))
+            .expect("static response is valid");
+    }
+
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    for (name, value) in SECURITY_HEADERS {
+        headers.insert(
+            HeaderName::from_static(name),
+            HeaderValue::from_static(value),
+        );
+    }
+    response
+}
+
+/// Returns `true` if `host` is `127.0.0.1`, `localhost` or `[::1]` with exactly `port`.
+fn is_loopback_host(host: &str, port: u16) -> bool {
+    let Some((name, host_port)) = host.rsplit_once(':') else {
+        return false;
+    };
+    host_port.parse::<u16>().is_ok_and(|p| p == port)
+        && ["127.0.0.1", "localhost", "[::1]"]
+            .iter()
+            .any(|allowed| name.eq_ignore_ascii_case(allowed))
 }
 
 /// Binds to `port`, falling back to the next free ports.
@@ -177,3 +246,23 @@ const MISSING_UI_PAGE: &str = r#"<!doctype html>
 <p>The raw analysis is available at <a href="/api/data">/api/data</a>.</p>
 </body></html>
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn host_allowlist() {
+        assert!(is_loopback_host("127.0.0.1:3000", 3000));
+        assert!(is_loopback_host("LOCALHOST:3000", 3000));
+        assert!(is_loopback_host("[::1]:3000", 3000));
+
+        assert!(!is_loopback_host("127.0.0.1:3001", 3000));
+        assert!(!is_loopback_host("127.0.0.1", 3000));
+        assert!(!is_loopback_host("evil.example:3000", 3000));
+        assert!(!is_loopback_host("localhost.evil.example:3000", 3000));
+        assert!(!is_loopback_host("127.0.0.1.nip.io:3000", 3000));
+        assert!(!is_loopback_host("", 3000));
+        assert!(!is_loopback_host("127.0.0.1:03000x", 3000));
+    }
+}
