@@ -1,13 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import type { OutputEdge, OutputNode, Statistics } from "../../types/sass-dep";
-import { NodeDetails } from "./NodeDetails";
 import { EdgeDetails } from "./EdgeDetails";
+import { NodeDetails } from "./NodeDetails";
+import { Overview } from "./Overview";
+import { PathDetails } from "./PathDetails";
+import type { GraphIndex } from "../../utils/graphIndex";
+import type { PathHighlightResult } from "../../hooks/usePathHighlight";
+import type { OutputEdge, OutputNode, SassDepOutput } from "../../types/sass-dep";
 import styles from "./Sidebar.module.scss";
 
+/** Minimum sidebar width in pixels. */
 const MIN_WIDTH = 280;
+/** Maximum sidebar width in pixels. */
 const MAX_WIDTH = 600;
+/** Sidebar width used when nothing is stored. */
 const DEFAULT_WIDTH = 320;
+/** localStorage key for the persisted sidebar width. */
 const STORAGE_KEY = "sass-dep-sidebar-width";
 
 /**
@@ -16,43 +24,51 @@ const STORAGE_KEY = "sass-dep-sidebar-width";
  */
 function getStoredWidth(): number {
 	if (typeof window === "undefined") return DEFAULT_WIDTH;
-	const stored = localStorage.getItem(STORAGE_KEY);
-	if (stored) {
-		const width = parseInt(stored, 10);
-		if (!isNaN(width) && width >= MIN_WIDTH && width <= MAX_WIDTH) {
-			return width;
+	try {
+		const stored = localStorage.getItem(STORAGE_KEY);
+		if (stored) {
+			const width = parseInt(stored, 10);
+			if (!isNaN(width) && width >= MIN_WIDTH && width <= MAX_WIDTH) {
+				return width;
+			}
 		}
+	} catch {
+		// Storage unavailable (e.g. privacy mode) - fall back to the default width
 	}
 	return DEFAULT_WIDTH;
 }
 
+/** Props for the Sidebar component. */
 interface SidebarProps {
+	/** Normalized sass-dep output */
+	data: SassDepOutput;
+	/** Graph adjacency index */
+	index: GraphIndex;
+	/** Selected file, if any */
 	selectedNode: { id: string; node: OutputNode } | null;
+	/** Selected edge, if any */
 	selectedEdge: OutputEdge | null;
-	statistics: Statistics;
-	edges: OutputEdge[];
+	/** First shift-clicked file */
+	pathSource: string | null;
+	/** Second shift-clicked file */
+	pathTarget: string | null;
+	/** Result of the path search */
+	pathHighlight: PathHighlightResult;
+	/** Called when a file should be focused in the graph */
 	onFocusNode?: (nodeId: string) => void;
+	/** Clears the path endpoints */
+	onClearPath: () => void;
 }
 
 /**
- * Sidebar component displaying node details, edge details, or statistics.
+ * Sidebar component displaying the dependency path, node details, edge details, or the project overview.
  * @param props - Component props
  * @returns Resizable sidebar panel
  */
-export function Sidebar({ selectedNode, selectedEdge, statistics, edges, onFocusNode }: SidebarProps) {
+export function Sidebar({ data, index, selectedNode, selectedEdge, pathSource, pathTarget, pathHighlight, onFocusNode, onClearPath }: SidebarProps) {
 	const [width, setWidth] = useState(getStoredWidth);
 	const [isResizing, setIsResizing] = useState(false);
 	const sidebarRef = useRef<HTMLDivElement>(null);
-
-	const { dependents, dependencies } = useMemo(() => {
-		if (!selectedNode) return { dependents: [], dependencies: [] };
-
-		const nodeId = selectedNode.id;
-		const nodeDependents = edges.filter((e) => e.to === nodeId).map((e) => e.from);
-		const nodeDependencies = edges.filter((e) => e.from === nodeId).map((e) => e.to);
-
-		return { dependents: nodeDependents, dependencies: nodeDependencies };
-	}, [selectedNode, edges]);
 
 	/**
 	 * Handles mouse down event to initiate resizing
@@ -80,7 +96,11 @@ export function Sidebar({ selectedNode, selectedEdge, statistics, edges, onFocus
 		/** Handles mouse up events to stop resizing and persist width. */
 		function handleMouseUp() {
 			setIsResizing(false);
-			localStorage.setItem(STORAGE_KEY, width.toString());
+			try {
+				localStorage.setItem(STORAGE_KEY, width.toString());
+			} catch {
+				// Storage unavailable - the width just won't persist
+			}
 		}
 
 		document.addEventListener("mousemove", handleMouseMove);
@@ -96,6 +116,24 @@ export function Sidebar({ selectedNode, selectedEdge, statistics, edges, onFocus
 		};
 	}, [isResizing, width]);
 
+	let details: React.ReactNode;
+	if (selectedNode) {
+		details = (
+			<NodeDetails
+				key={selectedNode.id}
+				nodeId={selectedNode.id}
+				node={selectedNode.node}
+				index={index}
+				totalFiles={data.analysis.statistics.total_files}
+				onFocusNode={onFocusNode}
+			/>
+		);
+	} else if (selectedEdge) {
+		details = <EdgeDetails edge={selectedEdge} />;
+	} else {
+		details = <Overview data={data} onFocusNode={onFocusNode} />;
+	}
+
 	return (
 		<div className={styles["sidebar"]} ref={sidebarRef} style={{ width }}>
 			<div className={styles["resize-handle"]} onMouseDown={handleMouseDown} />
@@ -106,64 +144,18 @@ export function Sidebar({ selectedNode, selectedEdge, statistics, edges, onFocus
 			</div>
 
 			<div className={styles["content"]}>
-				{selectedNode ? (
-					<NodeDetails
-						nodeId={selectedNode.id}
-						node={selectedNode.node}
-						dependents={dependents}
-						dependencies={dependencies}
-						edges={edges}
+				{pathSource && (
+					<PathDetails
+						key={`${pathSource}->${pathTarget ?? ""}`}
+						pathSource={pathSource}
+						pathTarget={pathTarget}
+						pathHighlight={pathHighlight}
+						index={index}
 						onFocusNode={onFocusNode}
+						onClear={onClearPath}
 					/>
-				) : selectedEdge ? (
-					<EdgeDetails edge={selectedEdge} />
-				) : (
-					<div className={styles["section"]}>
-						<h3>Statistics</h3>
-						<dl className={styles["stats-list"]}>
-							<div className={styles["stat-item"]}>
-								<dt>Total Files</dt>
-								<dd>{statistics.total_files}</dd>
-							</div>
-
-							<div className={styles["stat-item"]}>
-								<dt>Dependencies</dt>
-								<dd>{statistics.total_dependencies}</dd>
-							</div>
-
-							<div className={styles["stat-item"]}>
-								<dt>Entry Points</dt>
-								<dd>{statistics.entry_points}</dd>
-							</div>
-
-							<div className={styles["stat-item"]}>
-								<dt>Orphan Files</dt>
-								<dd>{statistics.orphan_files}</dd>
-							</div>
-
-							<div className={styles["stat-item"]}>
-								<dt>Leaf Files</dt>
-								<dd>{statistics.leaf_files}</dd>
-							</div>
-
-							<div className={styles["stat-item"]}>
-								<dt>Max Depth</dt>
-								<dd>{statistics.max_depth}</dd>
-							</div>
-
-							<div className={styles["stat-item"]}>
-								<dt>Max Fan-In</dt>
-								<dd>{statistics.max_fan_in}</dd>
-							</div>
-
-							<div className={styles["stat-item"]}>
-								<dt>Max Fan-Out</dt>
-								<dd>{statistics.max_fan_out}</dd>
-							</div>
-						</dl>
-						<p className={styles["hint"]}>Click on a node or edge to see details</p>
-					</div>
 				)}
+				{details}
 			</div>
 		</div>
 	);

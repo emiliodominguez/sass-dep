@@ -334,6 +334,21 @@
 	}
 }
 
+.import-button {
+	@extend %toolbar-button;
+
+	&:hover,
+	&.active {
+		background-color: color-mix(in srgb, var(--color-edge-import) 15%, transparent);
+		border-color: var(--color-edge-import);
+		color: var(--color-text-primary);
+	}
+
+	&:hover {
+		transform: translateY(-1px);
+	}
+}
+
 .group-button {
 	@extend %toolbar-button;
 

@@ -1,70 +1,52 @@
-import { useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 import { useGraphData } from "./hooks/useGraphData";
+import { useGraphIndex } from "./hooks/useGraphIndex";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
+import { usePathHighlight } from "./hooks/usePathHighlight";
+import { useVisibleNodeIds } from "./hooks/useVisibleNodeIds";
 import { Graph, type GraphHandle } from "./components/Graph/Graph";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { DataLoader } from "./components/DataLoader/DataLoader";
 import { Legend } from "./components/Legend/Legend";
 import { Toolbar } from "./components/Toolbar/Toolbar";
-import { ALL_FILTER_FLAGS, type AdvancedFilters, DEFAULT_ADVANCED_FILTERS, type ToolbarHandle } from "./components/Toolbar/constants";
-import type { OutputEdge, OutputNode } from "./types/sass-dep";
+import { ALL_FILTER_FLAGS, type AdvancedFilters, DEFAULT_ADVANCED_FILTERS, type FilterFlag, type ToolbarHandle } from "./components/Toolbar/constants";
+import type { OutputEdge, OutputNode, SassDepOutput } from "./types/sass-dep";
 import styles from "./App.module.scss";
 
+/** Props for the Workspace component. */
+interface WorkspaceProps {
+	/** Normalized sass-dep output */
+	data: SassDepOutput;
+}
+
 /**
- * Main application component.
- * @returns App with graph visualization or data loader
+ * Main workspace for a loaded dataset: toolbar, graph and sidebar.
+ * All per-dataset state lives here, so loading a new dataset starts from a clean slate.
+ * @param props - Component props
+ * @returns Workspace layout
  */
-function App() {
-	const { data, isLoading, setData } = useGraphData();
+function Workspace({ data }: WorkspaceProps) {
 	const [selectedNode, setSelectedNode] = useState<{ id: string; node: OutputNode } | null>(null);
 	const [selectedEdge, setSelectedEdge] = useState<OutputEdge | null>(null);
 	const [searchQuery, setSearchQuery] = useState("");
-	const [activeFilters, setActiveFilters] = useState<string[]>(ALL_FILTER_FLAGS);
+	const [activeFilters, setActiveFilters] = useState<FilterFlag[]>(ALL_FILTER_FLAGS);
 	const [advancedFilters, setAdvancedFilters] = useState<AdvancedFilters>(DEFAULT_ADVANCED_FILTERS);
-	const graphRef = useRef<GraphHandle>(null);
-	const toolbarRef = useRef<ToolbarHandle>(null);
-
 	const [pathSource, setPathSource] = useState<string | null>(null);
 	const [pathTarget, setPathTarget] = useState<string | null>(null);
 	const [highlightCycles, setHighlightCycles] = useState(false);
+	const [highlightImports, setHighlightImports] = useState(false);
 	const [groupByFolder, setGroupByFolder] = useState(false);
 	const [isExporting, setIsExporting] = useState(false);
+	const graphRef = useRef<GraphHandle>(null);
+	const toolbarRef = useRef<ToolbarHandle>(null);
 
-	const { nodeCount, visibleCount } = useMemo(() => {
-		if (!data) return { nodeCount: 0, visibleCount: 0 };
-
-		const nodes = Object.entries(data.nodes);
-		const totalCount = nodes.length;
-
-		const visibleNodeCount = nodes.filter(([id, node]) => {
-			const matchesSearch = !searchQuery || id.toLowerCase().includes(searchQuery.toLowerCase()) || node.path.toLowerCase().includes(searchQuery.toLowerCase());
-
-			const matchesFilters =
-				activeFilters.length === 0 ||
-				activeFilters.some((filter) => {
-					if (filter === "no_flags") {
-						return node.flags.length === 0;
-					}
-					return node.flags.includes(filter as OutputNode["flags"][number]);
-				});
-
-			const { minDepth, maxDepth, minFanIn, maxFanIn, minFanOut, maxFanOut } = advancedFilters;
-			const { depth, fan_in, fan_out } = node.metrics;
-
-			const matchesAdvanced =
-				(minDepth === null || depth >= minDepth) &&
-				(maxDepth === null || depth <= maxDepth) &&
-				(minFanIn === null || fan_in >= minFanIn) &&
-				(maxFanIn === null || fan_in <= maxFanIn) &&
-				(minFanOut === null || fan_out >= minFanOut) &&
-				(maxFanOut === null || fan_out <= maxFanOut);
-
-			return matchesSearch && matchesFilters && matchesAdvanced;
-		}).length;
-
-		return { nodeCount: totalCount, visibleCount: visibleNodeCount };
-	}, [data, searchQuery, activeFilters, advancedFilters]);
+	// Built once per dataset and shared by the graph, sidebar and path search.
+	const index = useGraphIndex(data);
+	// Single source of truth for visibility (toolbar count + graph).
+	const visibleIds = useVisibleNodeIds(data, searchQuery, activeFilters, advancedFilters);
+	const pathHighlight = usePathHighlight(pathSource, pathTarget, index);
+	const nodeCount = data.analysis.statistics.total_files || Object.keys(data.nodes).length;
 
 	/**
 	 * Handles node selection, supporting shift-click for path highlighting.
@@ -72,7 +54,7 @@ function App() {
 	 * @param node - The selected node data
 	 * @param isShiftClick - Whether shift key was held during click
 	 */
-	function handleNodeSelect(nodeId: string, node: OutputNode, isShiftClick?: boolean) {
+	function handleNodeSelect(nodeId: string, node: OutputNode, isShiftClick: boolean) {
 		if (isShiftClick) {
 			if (!pathSource) {
 				setPathSource(nodeId);
@@ -102,13 +84,28 @@ function App() {
 	}
 
 	/**
-	 * Clears the current selection (node, edge, and path).
+	 * Clears the path endpoints.
+	 */
+	function handleClearPath() {
+		setPathSource(null);
+		setPathTarget(null);
+	}
+
+	/**
+	 * Clears the current selection (node, edge, path and focus highlight).
 	 */
 	function handleClearSelection() {
 		setSelectedNode(null);
 		setSelectedEdge(null);
-		setPathSource(null);
-		setPathTarget(null);
+		handleClearPath();
+		graphRef.current?.clearFocus();
+	}
+
+	/**
+	 * Clears the search query.
+	 */
+	function handleClearSearch() {
+		setSearchQuery("");
 	}
 
 	/**
@@ -134,62 +131,48 @@ function App() {
 	}
 
 	/**
-	 * Exports the current graph view as a PNG image.
+	 * Runs an image export while showing the exporting state in the toolbar.
+	 * @param format - Image format to export
 	 */
-	async function handleExportPng() {
-		if (!graphRef.current) return;
+	async function runImageExport(format: "png" | "svg") {
+		const graph = graphRef.current;
+		if (!graph) return;
 
 		setIsExporting(true);
-
 		try {
-			await graphRef.current.exportPng();
+			await (format === "png" ? graph.exportPng() : graph.exportSvg());
 		} finally {
 			setIsExporting(false);
 		}
+	}
+
+	/**
+	 * Exports the current graph view as a PNG image.
+	 */
+	async function handleExportPng() {
+		await runImageExport("png");
 	}
 
 	/**
 	 * Exports the current graph view as an SVG file.
 	 */
 	async function handleExportSvg() {
-		if (!graphRef.current) return;
-
-		setIsExporting(true);
-
-		try {
-			await graphRef.current.exportSvg();
-		} finally {
-			setIsExporting(false);
-		}
+		await runImageExport("svg");
 	}
 
 	/**
 	 * Exports the visible subgraph as a JSON file.
 	 */
 	function handleExportJson() {
-		if (!graphRef.current) return;
-
-		graphRef.current.exportJson();
+		graphRef.current?.exportJson();
 	}
 
 	useKeyboardShortcuts({
 		onFocusSearch: handleFocusSearch,
 		onFitView: handleFitView,
 		onClearSelection: handleClearSelection,
-		onEscape: () => setSearchQuery(""),
+		onEscape: handleClearSearch,
 	});
-
-	if (isLoading) {
-		return (
-			<div className={`${styles["app"]} ${styles["loading"]}`}>
-				<p>Loading...</p>
-			</div>
-		);
-	}
-
-	if (!data) {
-		return <DataLoader onDataLoaded={setData} />;
-	}
 
 	return (
 		<div className={styles["app"]}>
@@ -200,13 +183,15 @@ function App() {
 					activeFilters={activeFilters}
 					advancedFilters={advancedFilters}
 					nodeCount={nodeCount}
-					visibleCount={visibleCount}
+					visibleCount={visibleIds.size}
 					cycleCount={data.analysis.cycles.length}
+					importerCount={index.importerIds.size}
 					maxDepth={data.analysis.statistics.max_depth}
 					maxFanIn={data.analysis.statistics.max_fan_in}
 					maxFanOut={data.analysis.statistics.max_fan_out}
 					isExporting={isExporting}
 					highlightCycles={highlightCycles}
+					highlightImports={highlightImports}
 					groupByFolder={groupByFolder}
 					onSearchChange={setSearchQuery}
 					onFiltersChange={setActiveFilters}
@@ -216,6 +201,7 @@ function App() {
 					onExportJson={handleExportJson}
 					onFitView={handleFitView}
 					onToggleCycles={setHighlightCycles}
+					onToggleImports={setHighlightImports}
 					onToggleGroupByFolder={setGroupByFolder}
 				/>
 			</div>
@@ -225,12 +211,13 @@ function App() {
 					<Graph
 						ref={graphRef}
 						data={data}
-						searchQuery={searchQuery}
-						activeFilters={activeFilters}
-						advancedFilters={advancedFilters}
+						index={index}
+						visibleIds={visibleIds}
 						pathSource={pathSource}
 						pathTarget={pathTarget}
+						pathHighlight={pathHighlight}
 						highlightCycles={highlightCycles}
+						highlightImports={highlightImports}
 						groupByFolder={groupByFolder}
 						onNodeSelect={handleNodeSelect}
 						onEdgeSelect={handleEdgeSelect}
@@ -240,10 +227,42 @@ function App() {
 					<Legend />
 				</main>
 
-				<Sidebar selectedNode={selectedNode} selectedEdge={selectedEdge} statistics={data.analysis.statistics} edges={data.edges} onFocusNode={handleFocusNode} />
+				<Sidebar
+					data={data}
+					index={index}
+					selectedNode={selectedNode}
+					selectedEdge={selectedEdge}
+					pathSource={pathSource}
+					pathTarget={pathTarget}
+					pathHighlight={pathHighlight}
+					onFocusNode={handleFocusNode}
+					onClearPath={handleClearPath}
+				/>
 			</div>
 		</div>
 	);
+}
+
+/**
+ * Main application component.
+ * @returns The workspace once data is loaded, otherwise the data loader
+ */
+function App() {
+	const { data, isLoading, error, loadData } = useGraphData();
+
+	if (isLoading) {
+		return (
+			<div className={`${styles["app"]} ${styles["loading"]}`}>
+				<p>Loading...</p>
+			</div>
+		);
+	}
+
+	if (!data) {
+		return <DataLoader onLoad={loadData} error={error} />;
+	}
+
+	return <Workspace data={data} />;
 }
 
 export default App;

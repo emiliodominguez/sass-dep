@@ -71,6 +71,10 @@
 		text-transform: uppercase;
 		letter-spacing: 0.08em;
 	}
+
+	h3.section-title {
+		margin-bottom: 12px;
+	}
 }
 
 .section-header {
@@ -189,6 +193,249 @@
 		color: var(--color-text-primary);
 		margin: 4px 0 0 0;
 		letter-spacing: -0.02em;
+	}
+
+	&.stat-warning {
+		border-color: var(--color-flag-in-cycle-border);
+		background-color: rgba(245, 158, 11, 0.08);
+
+		dd {
+			color: var(--color-flag-in-cycle-border);
+		}
+	}
+}
+
+.metric-item-wide {
+	grid-column: span 2;
+}
+
+.metric-suffix {
+	margin-left: 8px;
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--color-text-tertiary);
+	letter-spacing: normal;
+}
+
+.metric-item dd.metric-muted {
+	font-size: 14px;
+	color: var(--color-text-tertiary);
+}
+
+// Callout (e.g. @import deprecation)
+.callout {
+	margin: 16px 0 0 0;
+	padding: 12px;
+	border-radius: 10px;
+	font-size: 12px;
+	line-height: 1.5;
+	color: var(--color-text-primary);
+	background-color: rgba(249, 115, 22, 0.1);
+	border: 1px solid rgba(249, 115, 22, 0.35);
+
+	code {
+		font-family: var(--font-family-mono);
+		font-size: 11px;
+		padding: 1px 4px;
+		border-radius: 4px;
+		background-color: var(--color-bg-tertiary);
+	}
+}
+
+// Collapsible detail group header
+.collapsible-header {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	width: 100%;
+	margin: 20px 0 6px 0;
+	padding: 0;
+	border: none;
+	background: transparent;
+	cursor: pointer;
+	font-size: 10px;
+	font-weight: 700;
+	color: var(--color-text-tertiary);
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	text-align: left;
+
+	&:hover {
+		color: var(--color-text-primary);
+	}
+
+	svg {
+		flex-shrink: 0;
+		transition: transform 0.15s ease;
+	}
+
+	.label-count {
+		margin-left: 2px;
+	}
+}
+
+// Unresolved import and cycle lists
+.issue-list {
+	list-style: none;
+	margin: 0;
+	padding: 6px;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	max-height: 260px;
+	overflow-y: auto;
+	background-color: var(--color-bg-tertiary);
+	border: 1px solid var(--color-border);
+	border-radius: 8px;
+}
+
+.issue-item,
+.cycle-item {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px;
+	padding: 6px 8px;
+	border-radius: 6px;
+	font-size: 11px;
+	font-family: var(--font-family-mono);
+	color: var(--color-text-secondary);
+	background-color: var(--color-bg-primary);
+	border: 1px solid var(--color-border);
+	word-break: break-all;
+}
+
+.cycle-step {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+}
+
+.issue-arrow {
+	color: var(--color-text-tertiary);
+	flex-shrink: 0;
+}
+
+.issue-target {
+	color: var(--color-flag-orphan-border);
+	font-family: var(--font-family-mono);
+}
+
+.issue-meta {
+	margin-left: auto;
+	color: var(--color-text-tertiary);
+	white-space: nowrap;
+}
+
+// Inline clickable file reference
+.inline-file {
+	display: inline;
+	padding: 0 2px;
+	border: none;
+	border-radius: 4px;
+	background: transparent;
+	color: var(--color-accent);
+	font-family: var(--font-family-mono);
+	font-size: inherit;
+	text-align: left;
+	word-break: break-all;
+	cursor: pointer;
+
+	&:hover {
+		background-color: var(--color-accent-light);
+		text-decoration: underline;
+	}
+}
+
+// Dependency path section
+.path-section {
+	margin-bottom: 24px;
+	padding-bottom: 20px;
+	border-bottom: 1px solid var(--color-border);
+}
+
+.path-summary {
+	margin: 0 0 12px 0;
+	font-size: 12px;
+	line-height: 1.6;
+	color: var(--color-text-primary);
+
+	.inline-file {
+		font-size: 11px;
+	}
+}
+
+.path-none {
+	padding: 10px 12px;
+	border-radius: 8px;
+	border: 1px dashed var(--color-border);
+	background-color: var(--color-bg-tertiary);
+	color: var(--color-text-secondary);
+}
+
+.path-direction {
+	color: var(--color-text-tertiary);
+}
+
+.path-steps {
+	list-style: none;
+	margin: 0;
+	padding: 6px;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	max-height: 320px;
+	overflow-y: auto;
+	background-color: var(--color-bg-tertiary);
+	border: 1px solid var(--color-border);
+	border-radius: 8px;
+}
+
+.path-step {
+	display: flex;
+	flex-direction: column;
+}
+
+.path-step-index {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 18px;
+	height: 18px;
+	border-radius: 9px;
+	background-color: var(--color-accent-light);
+	color: var(--color-accent);
+	font-size: 10px;
+	font-weight: 700;
+	flex-shrink: 0;
+}
+
+.path-hop {
+	padding: 0 0 2px 36px;
+	font-size: 10px;
+	font-family: var(--font-family-mono);
+	color: var(--color-text-tertiary);
+}
+
+// "Show N more" affordance for capped lists
+.show-more {
+	display: block;
+	width: 100%;
+	margin-top: 4px;
+	padding: 6px 10px;
+	border: 1px dashed var(--color-border);
+	border-radius: 6px;
+	background-color: transparent;
+	color: var(--color-accent);
+	font-size: 11px;
+	font-weight: 600;
+	cursor: pointer;
+	transition: all 0.15s ease;
+
+	&:hover {
+		background-color: var(--color-accent-light);
+		border-color: var(--color-accent);
 	}
 }
 

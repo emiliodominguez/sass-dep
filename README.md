@@ -15,14 +15,14 @@ Map dependencies, find circular imports and check architecture rules with a Rust
 
 ## Features
 
--   **Fast** - Single-pass byte scanner, parallel graph construction and cached directory listings: ~20k files / 120k imports analyzed in well under a second
--   **Sass-accurate resolution** - Partials, index files, `.import.scss` files, explicit extensions, CSS modules, load paths and webpack-style `~package` imports
--   **Cycle detection** - Tarjan SCCs decomposed into ordered, real import cycles (self-imports included)
--   **Metrics** - Fan-in, fan-out, depth, transitive dependencies and transitive dependents (blast radius)
--   **CI checks** - Cycles, depth/fan limits, orphans, unresolved imports, legacy `@import` and custom architecture rules, with text, JSON or GitHub annotation output
--   **Impact analysis** - `impact` lists every file and entry point affected by a change; `why` explains how a file is reached
--   **Multiple output formats** - JSON (versioned schema), Graphviz DOT, Mermaid and D2
--   **Interactive web visualizer** - React-based UI embedded in the binary
+- **Fast** - Single-pass byte scanner, parallel graph construction and cached directory listings: ~20k files / 120k imports analyzed in well under a second
+- **Sass-accurate resolution** - Partials, index files, `.import.scss` files, explicit extensions, CSS modules, load paths and webpack-style `~package` imports
+- **Cycle detection** - Tarjan SCCs decomposed into ordered, real import cycles (self-imports included)
+- **Metrics** - Fan-in, fan-out, depth, transitive dependencies and transitive dependents (blast radius)
+- **CI checks** - Cycles, depth/fan limits, orphans, unresolved imports, legacy `@import` and custom architecture rules, with text, JSON or GitHub annotation output
+- **Impact analysis** - `impact` lists every file and entry point affected by a change; `why` explains how a file is reached
+- **Multiple output formats** - JSON (versioned schema), Graphviz DOT, Mermaid and D2
+- **Interactive web visualizer** - React-based UI embedded in the binary
 
 ![Web Visualizer Screenshot](docs/screenshot.png)
 
@@ -67,13 +67,13 @@ sass-dep why src/components/_button.scss
 
 ### Global Options
 
-| Option              | Short | Description                                                         |
-| ------------------- | ----- | ------------------------------------------------------------------- |
-| `--root <DIR>`      |       | Project root directory (default: `.`)                               |
-| `--config <FILE>`   |       | Config file (default: `<root>/.sass-dep.toml` when present)          |
-| `--load-path <DIR>` | `-I`  | Add Sass load path, relative to `--root` (repeatable)                |
-| `--quiet`           | `-q`  | Suppress non-error output                                           |
-| `--verbose`         | `-v`  | `-v`: timings and all unresolved imports                            |
+| Option              | Short | Description                                                 |
+| ------------------- | ----- | ----------------------------------------------------------- |
+| `--root <DIR>`      |       | Project root directory (default: `.`)                       |
+| `--config <FILE>`   |       | Config file (default: `<root>/.sass-dep.toml` when present) |
+| `--load-path <DIR>` | `-I`  | Add Sass load path, relative to `--root` (repeatable)       |
+| `--quiet`           | `-q`  | Suppress non-error output                                   |
+| `--verbose`         | `-v`  | `-v`: timings and all unresolved imports                    |
 
 Entry points can be given as arguments or via `entry_points` in the config file. File IDs in every output are paths relative to `--root`, with `/` separators.
 
@@ -85,14 +85,14 @@ Build the dependency graph and output the analysis.
 sass-dep analyze [OPTIONS] [ENTRY_POINTS]...
 ```
 
-| Option              | Short | Description                                              |
-| ------------------- | ----- | -------------------------------------------------------- |
-| `--output <FILE>`   | `-o`  | Output file (default: stdout)                            |
-| `--format <FORMAT>` |       | `json` (default), `dot`, `mermaid` or `d2`               |
-| `--include-orphans` |       | Also include files not reachable from any entry point    |
-| `--web`             |       | Start the interactive visualizer                         |
-| `--port <PORT>`     |       | Visualizer port (default: 3000; next free port if busy)  |
-| `--no-open`         |       | Do not open the browser automatically                    |
+| Option              | Short | Description                                             |
+| ------------------- | ----- | ------------------------------------------------------- |
+| `--output <FILE>`   | `-o`  | Output file (default: stdout)                           |
+| `--format <FORMAT>` |       | `json` (default), `dot`, `mermaid` or `d2`              |
+| `--include-orphans` |       | Also include files not reachable from any entry point   |
+| `--web`             |       | Start the interactive visualizer                        |
+| `--port <PORT>`     |       | Visualizer port (default: 3000; next free port if busy) |
+| `--no-open`         |       | Do not open the browser automatically                   |
 
 ```bash
 sass-dep analyze src/app.scss src/admin.scss            # multiple entry points
@@ -111,16 +111,16 @@ Verify graph integrity and architecture rules. Exits with code `1` on violations
 sass-dep check [OPTIONS] [ENTRY_POINTS]...
 ```
 
-| Option                | Description                                                   |
-| --------------------- | ------------------------------------------------------------- |
-| `--no-cycles`         | Fail on circular dependencies                                 |
-| `--max-depth <N>`     | Maximum depth in the dependency tree                          |
-| `--max-fan-out <N>`   | Maximum direct dependencies per file                          |
-| `--max-fan-in <N>`    | Maximum direct dependents per file                            |
-| `--no-orphans`        | Fail on files unreachable from every entry point              |
-| `--no-unresolved`     | Fail on imports that cannot be resolved                       |
-| `--no-legacy-imports` | Fail on `@import` (deprecated, removed in Dart Sass 3.0)      |
-| `--format <FORMAT>`   | `text` (default, stderr), `json` or `github` (stdout)         |
+| Option                | Description                                              |
+| --------------------- | -------------------------------------------------------- |
+| `--no-cycles`         | Fail on circular dependencies                            |
+| `--max-depth <N>`     | Maximum depth in the dependency tree                     |
+| `--max-fan-out <N>`   | Maximum direct dependencies per file                     |
+| `--max-fan-in <N>`    | Maximum direct dependents per file                       |
+| `--no-orphans`        | Fail on files unreachable from every entry point         |
+| `--no-unresolved`     | Fail on imports that cannot be resolved                  |
+| `--no-legacy-imports` | Fail on `@import` (deprecated, removed in Dart Sass 3.0) |
+| `--format <FORMAT>`   | `text` (default, stderr), `json` or `github` (stdout)    |
 
 ```bash
 sass-dep check --no-cycles --max-depth 10 --max-fan-out 15 src/main.scss
@@ -210,66 +210,79 @@ Skipped on purpose: built-in modules (`sass:math`), `pkg:` URLs, plain CSS impor
 
 ```json
 {
-	"$schema": "https://raw.githubusercontent.com/emiliodominguez/sass-dep/main/schema/v1.1.0.json",
-	"version": "1.1.0",
-	"metadata": {
-		"generated_at": "2026-01-15T10:30:00Z",
-		"root": "/project",
-		"sass_dep_version": "0.2.0",
-		"entry_points": ["src/main.scss"]
-	},
-	"nodes": {
-		"src/main.scss": {
-			"path": "/project/src/main.scss",
-			"metrics": { "fan_in": 0, "fan_out": 3, "depth": 0, "transitive_deps": 5, "transitive_dependents": 0 },
-			"flags": ["entry_point"]
-		}
-	},
-	"edges": [
-		{
-			"from": "src/main.scss",
-			"to": "src/_variables.scss",
-			"directive_type": "use",
-			"location": { "line": 1, "column": 1 },
-			"namespace": "vars",
-			"configured": false
-		}
-	],
-	"analysis": {
-		"cycles": [["src/_a.scss", "src/_b.scss"]],
-		"unresolved": [{ "from": "src/main.scss", "target": "missing", "directive_type": "use", "location": { "line": 4, "column": 1 } }],
-		"statistics": {
-			"total_files": 10,
-			"total_dependencies": 15,
-			"entry_points": 1,
-			"orphan_files": 2,
-			"leaf_files": 4,
-			"max_depth": 5,
-			"max_fan_in": 3,
-			"max_fan_out": 4,
-			"cycle_count": 1,
-			"unresolved_imports": 1,
-			"import_directives": 0
-		}
-	}
+  "$schema": "https://raw.githubusercontent.com/emiliodominguez/sass-dep/main/schema/v1.1.0.json",
+  "version": "1.1.0",
+  "metadata": {
+    "generated_at": "2026-01-15T10:30:00Z",
+    "root": "/project",
+    "sass_dep_version": "0.2.0",
+    "entry_points": ["src/main.scss"]
+  },
+  "nodes": {
+    "src/main.scss": {
+      "path": "/project/src/main.scss",
+      "metrics": {
+        "fan_in": 0,
+        "fan_out": 3,
+        "depth": 0,
+        "transitive_deps": 5,
+        "transitive_dependents": 0
+      },
+      "flags": ["entry_point"]
+    }
+  },
+  "edges": [
+    {
+      "from": "src/main.scss",
+      "to": "src/_variables.scss",
+      "directive_type": "use",
+      "location": { "line": 1, "column": 1 },
+      "namespace": "vars",
+      "configured": false
+    }
+  ],
+  "analysis": {
+    "cycles": [["src/_a.scss", "src/_b.scss"]],
+    "unresolved": [
+      {
+        "from": "src/main.scss",
+        "target": "missing",
+        "directive_type": "use",
+        "location": { "line": 4, "column": 1 }
+      }
+    ],
+    "statistics": {
+      "total_files": 10,
+      "total_dependencies": 15,
+      "entry_points": 1,
+      "orphan_files": 2,
+      "leaf_files": 4,
+      "max_depth": 5,
+      "max_fan_in": 3,
+      "max_fan_out": 4,
+      "cycle_count": 1,
+      "unresolved_imports": 1,
+      "import_directives": 0
+    }
+  }
 }
 ```
 
--   `depth` is `null` for files unreachable from every entry point.
--   Each cycle is an ordered closed path: `cycle[i]` imports `cycle[i + 1]` and the last file imports the first. Every `in_cycle` file appears in at least one cycle.
--   `transitive_deps` / `transitive_dependents` count files reachable from / reaching a file; files in a cycle count themselves.
--   Changes from 1.0.0: nullable `depth` (was `usize::MAX`), plus the `transitive_dependents`, `entry_points`, `unresolved`, `cycle_count`, `unresolved_imports` and `import_directives` fields. `export` and the visualizer still read 1.0.0 files.
+- `depth` is `null` for files unreachable from every entry point.
+- Each cycle is an ordered closed path: `cycle[i]` imports `cycle[i + 1]` and the last file imports the first. Every `in_cycle` file appears in at least one cycle.
+- `transitive_deps` / `transitive_dependents` count files reachable from / reaching a file; files in a cycle count themselves.
+- Changes from 1.0.0: nullable `depth` (was `usize::MAX`), plus the `transitive_dependents`, `entry_points`, `unresolved`, `cycle_count`, `unresolved_imports` and `import_directives` fields. `export` and the visualizer still read 1.0.0 files.
 
 ### Node Flags
 
-| Flag           | Description                              |
-| -------------- | ---------------------------------------- |
-| `entry_point`  | File specified as an entry point         |
-| `leaf`         | File with no dependencies (fan-out = 0)  |
-| `orphan`       | File not reachable from any entry point  |
-| `high_fan_in`  | Fan-in ≥ threshold (default: 5)          |
-| `high_fan_out` | Fan-out ≥ threshold (default: 10)        |
-| `in_cycle`     | File is part of a circular dependency    |
+| Flag           | Description                             |
+| -------------- | --------------------------------------- |
+| `entry_point`  | File specified as an entry point        |
+| `leaf`         | File with no dependencies (fan-out = 0) |
+| `orphan`       | File not reachable from any entry point |
+| `high_fan_in`  | Fan-in ≥ threshold (default: 5)         |
+| `high_fan_out` | Fan-out ≥ threshold (default: 10)       |
+| `in_cycle`     | File is part of a circular dependency   |
 
 ### Edge Types
 
@@ -335,76 +348,88 @@ Open `http://localhost:5173` and load your JSON analysis file (drag & drop or fi
 
 **Graph Interaction**
 
--   Pan and zoom with mouse/trackpad
--   Click nodes to view details in sidebar
--   Shift+click two nodes to highlight the path between them
--   Use search (`/`) to filter nodes by name or path
--   Focus on any node from the sidebar dependency tree
+- Pan and zoom with mouse/trackpad
+- Click nodes to view details in sidebar
+- Shift+click two nodes to find the directed dependency path between them (listed step by step in the sidebar, with the direction)
+- Use search (`/` or `Cmd/Ctrl+K`) to filter nodes by name or path
+- Focus on any node from the sidebar dependency tree
 
 **Filtering & Search**
 
--   Filter by node flags (entry point, leaf, orphan, in cycle, high fan-in/out, no flags)
--   Advanced filtering by depth, fan-in, and fan-out ranges
--   Real-time node count showing visible/total
+- Filter by node flags (entry point, leaf, orphan, in cycle, high fan-in/out, no flags)
+- Advanced filtering by depth, fan-in, and fan-out ranges
+- Real-time node count showing visible/total
+- `@import` toggle highlights files still using the legacy `@import`
 
 **Cycle Detection**
 
--   Toggle cycle highlighting to visualize circular dependencies
--   Animated pulse effect on nodes and edges in cycles
+- Toggle cycle highlighting to visualize circular dependencies
+- Overview lists every cycle as `a → b → c → a` with clickable files
+- Unresolved imports listed with their location
 
 **Impact Analysis**
 
--   View direct dependents (files that import selected file)
--   View direct dependencies (files imported by selected file)
--   Expandable dependency trees showing transitive relationships
--   Click any file in the tree to focus and select it
+- Impact: number (and share) of files that transitively depend on the selected file
+- View direct dependents (files that import selected file)
+- View direct dependencies (files imported by selected file)
+- Expandable dependency trees showing transitive relationships
+- Click any file in the tree to focus and select it
 
 **Export Options**
 
--   PNG - High-resolution image export
--   SVG - Vector format for editing
--   JSON - Export filtered subgraph data
+- PNG - High-resolution image export
+- SVG - Vector format for editing
+- JSON - Export filtered subgraph data
 
 **Folder Grouping**
 
--   Toggle folder grouping to organize files by directory
--   Visual containers show folder path and file count
--   Group backgrounds dim edges for clearer visualization
+- Toggle folder grouping to organize files by directory
+- Visual containers show folder path and file count
+- Group backgrounds dim edges for clearer visualization
 
 **UI Features**
 
--   Light/Dark theme toggle with system preference detection
--   Resizable sidebar (drag left edge) with persistent width
--   Custom styled scrollbars
--   Minimap for navigation in large graphs
+- Light/Dark theme toggle with system preference detection
+- Resizable sidebar (drag left edge) with persistent width
+- Custom styled scrollbars
+- Minimap for navigation in large graphs
+- Loads any 1.x analysis file, with clear errors for invalid input
+
+**Performance**
+
+- Layout runs in a Web Worker; the UI stays responsive while thousands of files are laid out
+- Adjacency index built once per dataset; filtering, path finding and dependency trees never rescan all edges
+- Only nodes whose state changed are re-rendered on search, filter and highlight changes
+- Graphs above ~1,500 files render only visible elements and drop edge animations and dash patterns
+- A 3,000-file / 5,900-edge graph lays out in about 4 s
 
 **Keyboard Shortcuts**
 
-| Key           | Action                 |
-| ------------- | ---------------------- |
-| `/`           | Focus search input     |
-| `f`           | Fit graph to view      |
-| `Esc`         | Clear search/selection |
-| `Shift+Click` | Select path endpoints  |
+| Key               | Action                 |
+| ----------------- | ---------------------- |
+| `/`, `Cmd/Ctrl+K` | Focus search input     |
+| `f`               | Fit graph to view      |
+| `Esc`             | Clear search/selection |
+| `Shift+Click`     | Select path endpoints  |
 
 ### Visualizer Tech Stack
 
--   React 19 with TypeScript 5.9
--   React Flow (@xyflow/react) for graph rendering
--   Vite 7 for development and building
--   ESLint 9 with flat config
--   html-to-image for PNG/SVG export
+- React 19 with TypeScript 5.9
+- React Flow (@xyflow/react) for graph rendering
+- Vite 7 for development and building
+- ESLint 9 with flat config
+- html-to-image for PNG/SVG export
 
 ## Non-Goals
 
 This tool intentionally does not:
 
--   Track variables, mixins, or functions
--   Analyze CSS output
--   Support watch mode
--   Handle remote imports
--   Fully support the Sass indented syntax (`.sass` files are scanned for quoted `@use`/`@forward`/`@import` only)
--   Handle package imports (`pkg:` protocol)
+- Track variables, mixins, or functions
+- Analyze CSS output
+- Support watch mode
+- Handle remote imports
+- Fully support the Sass indented syntax (`.sass` files are scanned for quoted `@use`/`@forward`/`@import` only)
+- Handle package imports (`pkg:` protocol)
 
 ## Contributing
 

@@ -1,4 +1,4 @@
-// TypeScript types matching the Rust OutputSchema from src/output/schema.rs
+// TypeScript types matching the Rust OutputSchema from src/output/schema.rs (schema v1.1.0)
 
 /** Type of SCSS directive that created a dependency */
 export type DirectiveType = "use" | "forward" | "import";
@@ -12,10 +12,12 @@ export interface NodeMetrics {
 	fan_in: number;
 	/** Number of files this file depends on (out-degree) */
 	fan_out: number;
-	/** Distance from the nearest entry point */
-	depth: number;
+	/** Distance from the nearest entry point, or `null` when the file is unreachable from any entry point (orphans) */
+	depth: number | null;
 	/** Total number of transitive dependencies */
 	transitive_deps: number;
+	/** Number of files that (transitively) depend on this file, i.e. its "impact" or blast radius */
+	transitive_dependents: number;
 }
 
 /** Node data in the output schema */
@@ -38,18 +40,30 @@ export interface EdgeLocation {
 
 /** Edge data in the output schema */
 export interface OutputEdge {
-	/** Source file ID */
+	/** Source file ID (the file containing the directive) */
 	from: string;
-	/** Target file ID */
+	/** Target file ID (the file being loaded) */
 	to: string;
 	/** Type of directive */
 	directive_type: DirectiveType;
-	/** Source location in the file */
+	/** Source location of the directive in the `from` file */
 	location: EdgeLocation;
 	/** Namespace for @use directives */
 	namespace?: string;
-	/** Whether @use has configuration */
-	configured?: boolean;
+	/** Whether @use/@forward has a `with(...)` configuration */
+	configured: boolean;
+}
+
+/** An import directive whose target could not be resolved to a file */
+export interface UnresolvedImport {
+	/** File ID containing the directive */
+	from: string;
+	/** The raw target string as written in the directive */
+	target: string;
+	/** Type of directive */
+	directive_type: DirectiveType;
+	/** Source location of the directive in the `from` file */
+	location: EdgeLocation;
 }
 
 /** Summary statistics */
@@ -70,12 +84,23 @@ export interface Statistics {
 	max_fan_in: number;
 	/** Maximum fan-out value */
 	max_fan_out: number;
+	/** Number of detected dependency cycles */
+	cycle_count: number;
+	/** Number of import directives that could not be resolved */
+	unresolved_imports: number;
+	/** Number of legacy `@import` edges (deprecated in Dart Sass, removed in 3.0) */
+	import_directives: number;
 }
 
 /** Analysis results */
 export interface Analysis {
-	/** Detected cycles (arrays of file IDs) */
+	/**
+	 * Detected cycles. Each cycle is an ordered closed path: `cycle[i] -> cycle[i + 1]` is a real
+	 * edge and `last -> first` closes it. Self-imports appear as a 1-element cycle.
+	 */
 	cycles: string[][];
+	/** Import directives that could not be resolved */
+	unresolved: UnresolvedImport[];
 	/** Summary statistics */
 	statistics: Statistics;
 }
@@ -88,13 +113,15 @@ export interface Metadata {
 	root: string;
 	/** sass-dep version */
 	sass_dep_version: string;
+	/** Entry point file IDs (emitted by newer CLI versions; absent in older files) */
+	entry_points?: string[];
 }
 
 /** Root output schema from sass-dep */
 export interface SassDepOutput {
 	/** JSON schema reference */
 	$schema: string;
-	/** Schema version */
+	/** Schema version (currently "1.1.0") */
 	version: string;
 	/** Analysis metadata */
 	metadata: Metadata;

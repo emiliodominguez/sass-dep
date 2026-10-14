@@ -1,31 +1,60 @@
 import { useEffect, useImperativeHandle, useRef, useState } from "react";
 
 import { useTheme } from "../../contexts/useTheme";
-import { ALL_FILTER_FLAGS, type AdvancedFilters, DEFAULT_ADVANCED_FILTERS, FILTER_OPTIONS, type ToolbarHandle } from "./constants";
+import { ALL_FILTER_FLAGS, type AdvancedFilters, DEFAULT_ADVANCED_FILTERS, FILTER_OPTIONS, type FilterFlag, type ToolbarHandle } from "./constants";
 import styles from "./Toolbar.module.scss";
 
+/** Props for the Toolbar component. */
 interface ToolbarProps {
+	/** Imperative handle ref */
 	ref?: React.Ref<ToolbarHandle>;
+	/** Current search text */
 	searchQuery: string;
-	activeFilters: string[];
+	/** Selected flag filters */
+	activeFilters: FilterFlag[];
+	/** Numeric metric range filters */
 	advancedFilters: AdvancedFilters;
+	/** Total number of files */
 	nodeCount: number;
+	/** Number of files passing the filters */
 	visibleCount: number;
+	/** Number of detected cycles */
 	cycleCount: number;
+	/** Number of files that contain legacy `@import` directives */
+	importerCount: number;
+	/** Maximum depth in the project (for the depth filter hint) */
 	maxDepth: number;
+	/** Maximum fan-in in the project */
 	maxFanIn: number;
+	/** Maximum fan-out in the project */
 	maxFanOut: number;
+	/** Whether an export is in progress */
 	isExporting?: boolean;
+	/** Whether cycle highlighting is on */
 	highlightCycles?: boolean;
+	/** Whether `@import` highlighting is on */
+	highlightImports?: boolean;
+	/** Whether files are grouped by folder */
 	groupByFolder?: boolean;
+	/** Called when the search text changes */
 	onSearchChange: (query: string) => void;
-	onFiltersChange: (filters: string[]) => void;
+	/** Called when the flag filters change */
+	onFiltersChange: (filters: FilterFlag[]) => void;
+	/** Called when the advanced filters change */
 	onAdvancedFiltersChange: (filters: AdvancedFilters) => void;
+	/** Exports a PNG image */
 	onExportPng?: () => void;
+	/** Exports an SVG image */
 	onExportSvg?: () => void;
+	/** Exports the visible subgraph as JSON */
 	onExportJson?: () => void;
+	/** Fits the view to the visible nodes */
 	onFitView?: () => void;
+	/** Toggles cycle highlighting */
 	onToggleCycles?: (highlight: boolean) => void;
+	/** Toggles `@import` highlighting */
+	onToggleImports?: (highlight: boolean) => void;
+	/** Toggles folder grouping */
 	onToggleGroupByFolder?: (group: boolean) => void;
 }
 
@@ -42,11 +71,13 @@ export function Toolbar({
 	nodeCount,
 	visibleCount,
 	cycleCount,
+	importerCount,
 	maxDepth,
 	maxFanIn,
 	maxFanOut,
 	isExporting,
 	highlightCycles,
+	highlightImports,
 	groupByFolder,
 	onSearchChange,
 	onFiltersChange,
@@ -56,6 +87,7 @@ export function Toolbar({
 	onExportJson,
 	onFitView,
 	onToggleCycles,
+	onToggleImports,
 	onToggleGroupByFolder,
 }: ToolbarProps) {
 	const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -97,7 +129,7 @@ export function Toolbar({
 	 * Handles toggling of filter flags
 	 * @param flag The flag to toggle
 	 */
-	function handleFilterToggle(flag: string) {
+	function handleFilterToggle(flag: FilterFlag) {
 		if (activeFilters.includes(flag)) {
 			onFiltersChange(activeFilters.filter((f) => f !== flag));
 		} else {
@@ -119,12 +151,15 @@ export function Toolbar({
 		onSearchChange("");
 	}
 
-	useImperativeHandle(ref, () => ({
-		focusSearch: () => {
-			searchInputRef.current?.focus();
-			searchInputRef.current?.select();
-		},
-	}));
+	/**
+	 * Focuses and selects the search input.
+	 */
+	function focusSearch() {
+		searchInputRef.current?.focus();
+		searchInputRef.current?.select();
+	}
+
+	useImperativeHandle(ref, () => ({ focusSearch }));
 
 	useEffect(() => {
 		if (!isFilterOpen && !isExportOpen) return;
@@ -235,7 +270,12 @@ export function Toolbar({
 								)}
 
 								<div className={styles["filter-range-group"]}>
-									<label className={styles["range-label"]}>Depth (0-{maxDepth})</label>
+									<label
+										className={styles["range-label"]}
+										title="Files unreachable from any entry point have no depth and are hidden while a depth bound is set"
+									>
+										Depth (0-{maxDepth})
+									</label>
 
 									<div className={styles["range-inputs"]}>
 										<input
@@ -360,6 +400,27 @@ export function Toolbar({
 						<path d="M12 20v-4" />
 					</svg>
 					<span>Cycles ({cycleCount})</span>
+				</button>
+			)}
+
+			{onToggleImports && importerCount > 0 && (
+				<button
+					className={`${styles["import-button"]} ${highlightImports ? styles["active"] : ""}`}
+					onClick={() => onToggleImports(!highlightImports)}
+					title={
+						highlightImports
+							? "Stop highlighting files that use @import"
+							: `Highlight the ${importerCount} file${importerCount === 1 ? "" : "s"} using legacy @import (deprecated in Dart Sass)`
+					}
+					aria-label={highlightImports ? "Stop highlighting @import usage" : "Highlight @import usage"}
+					aria-pressed={highlightImports}
+				>
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+						<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+						<line x1="12" y1="9" x2="12" y2="13" />
+						<line x1="12" y1="17" x2="12.01" y2="17" />
+					</svg>
+					<span>@import ({importerCount})</span>
 				</button>
 			)}
 

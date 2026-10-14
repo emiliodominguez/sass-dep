@@ -1,18 +1,16 @@
 import { memo } from "react";
 
-import type { GroupNodeData } from "./utils";
-import styles from "./GroupNode.module.scss";
+import type { NodeProps } from "@xyflow/react";
 
-interface GroupNodeProps {
-	data: GroupNodeData;
-}
+import type { GroupFlowNode } from "./utils";
+import styles from "./GroupNode.module.scss";
 
 /**
  * Group node component for folder grouping visualization.
- * @param props - Component props containing group data
+ * @param props - React Flow node props for a group node
  * @returns A labeled container representing a folder group
  */
-function GroupNodeComponent({ data }: GroupNodeProps) {
+function GroupNodeComponent({ data }: NodeProps<GroupFlowNode>) {
 	const folderPath = data.folderPath || "/";
 	const fileLabel = data.fileCount === 1 ? "file" : "files";
 
@@ -28,4 +26,7 @@ function GroupNodeComponent({ data }: GroupNodeProps) {
 	);
 }
 
-export default memo(GroupNodeComponent);
+/** Memoized group node. */
+const GroupNode = memo(GroupNodeComponent);
+
+export default GroupNode;

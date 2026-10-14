@@ -1,8 +1,10 @@
+import { EDGE_COLOR_VARS } from "../Graph/styles";
 import type { OutputEdge } from "../../types/sass-dep";
-import { EDGE_COLORS } from "../Graph/styles";
 import styles from "./Sidebar.module.scss";
 
+/** Props for the EdgeDetails component. */
 interface EdgeDetailsProps {
+	/** Selected edge */
 	edge: OutputEdge;
 }
 
@@ -12,7 +14,7 @@ interface EdgeDetailsProps {
  * @returns Edge details view
  */
 export function EdgeDetails({ edge }: EdgeDetailsProps) {
-	const directiveColor = EDGE_COLORS[edge.directive_type];
+	const directiveColor = EDGE_COLOR_VARS[edge.directive_type];
 
 	return (
 		<div className={styles["section"]}>
@@ -47,6 +49,13 @@ export function EdgeDetails({ edge }: EdgeDetailsProps) {
 					<label>Namespace</label>
 					<code className={styles["namespace"]}>{edge.namespace}</code>
 				</div>
+			)}
+
+			{edge.directive_type === "import" && (
+				<p className={styles["callout"]}>
+					<strong>@import is deprecated in Dart Sass</strong> and will be removed in Dart Sass 3.0. Migrate this directive to <code>@use</code> or{" "}
+					<code>@forward</code>.
+				</p>
 			)}
 
 			{edge.configured && (

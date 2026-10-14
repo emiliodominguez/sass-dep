@@ -1,327 +1,333 @@
-import type { Edge, Node, XYPosition } from "@xyflow/react";
-import Dagre from "@dagrejs/dagre";
+import type { Edge, Node } from "@xyflow/react";
 
-import type { NodeFlag, OutputNode, SassDepOutput } from "../../types/sass-dep";
-import { getEdgeColor, getEdgeStyle, getNodeColor } from "./styles";
+import { type EdgeHighlight, getEdgeMarker, getEdgeStyle } from "./styles";
+import { type LayoutInput, type LayoutResult, getFolderPath } from "./layout";
+import { type GraphIndex, edgePairKey } from "../../utils/graphIndex";
+import type { DirectiveType, NodeFlag, SassDepOutput } from "../../types/sass-dep";
 
-/** Group node data */
+/** Data carried by a folder group node. */
 export interface GroupNodeData extends Record<string, unknown> {
+	/** Last folder segment */
 	label: string;
+	/** Full folder path */
 	folderPath: string;
+	/** Number of files in the folder */
 	fileCount: number;
 }
 
-/** Custom node data */
+/** Data carried by a file node: static metrics plus per-render decoration flags. */
 export interface FileNodeData extends Record<string, unknown> {
+	/** File name shown on the node */
 	label: string;
+	/** Full file path (tooltip) */
 	fullPath: string;
+	/** Number of direct dependents */
 	fanIn: number;
+	/** Number of direct dependencies */
 	fanOut: number;
-	depth: number;
+	/** Depth from the nearest entry point, or null if unreachable */
+	depth: number | null;
+	/** Number of transitive dependencies */
 	transitiveDeps: number;
+	/** Number of transitive dependents (impact) */
+	transitiveDependents: number;
+	/** All flags of the file */
 	flags: NodeFlag[];
+	/** Flag that decides the node colour */
 	primaryFlag: NodeFlag | null;
-	nodeData: OutputNode;
+	/** Whether the node was focused from the sidebar */
+	isFocused: boolean;
+	/** Whether the node is the first shift-clicked path endpoint */
+	isPathSource: boolean;
+	/** Whether the node is the second shift-clicked path endpoint */
+	isPathTarget: boolean;
+	/** Whether the node lies on the highlighted dependency path */
+	isInPath: boolean;
+	/** Whether the node is highlighted as part of a cycle */
+	isInCycle: boolean;
+	/** Whether the node is highlighted for using legacy `@import` */
+	isLegacyImport: boolean;
 }
 
-/** Custom edge data */
+/** Data carried by a dependency edge. */
 export interface DependencyEdgeData extends Record<string, unknown> {
-	directiveType: string;
-	line: number;
-	column: number;
-	namespace?: string;
-	configured?: boolean;
+	/** Directive type that created the dependency */
+	directiveType: DirectiveType;
+	/** `from->to` key shared by all edges between the same two files */
+	pairKey: string;
+	/** Current highlight state */
+	highlight: EdgeHighlight;
 }
 
-/** Node type with FileNodeData */
-export type FileNode = Node<FileNodeData>;
+/** React Flow node representing a file. */
+export type FileFlowNode = Node<FileNodeData, "fileNode">;
 
-/** Edge type with DependencyEdgeData */
+/** React Flow node representing a folder group. */
+export type GroupFlowNode = Node<GroupNodeData, "group">;
+
+/** Any node rendered in the graph. */
+export type AppNode = FileFlowNode | GroupFlowNode;
+
+/** React Flow edge representing a dependency. */
 export type DependencyEdge = Edge<DependencyEdgeData>;
 
-/** Transform sass-dep output to React Flow elements */
-export function transformToFlowElements(data: SassDepOutput): {
-	nodes: FileNode[];
-	edges: DependencyEdge[];
-} {
-	const nodes: FileNode[] = [];
-	const edges: DependencyEdge[] = [];
-
-	// Transform nodes
-	for (const [id, node] of Object.entries(data.nodes)) {
-		const primaryFlag = getPrimaryFlag(node.flags);
-		nodes.push({
-			id,
-			type: "fileNode",
-			position: { x: 0, y: 0 }, // Will be set by layout
-			data: {
-				label: getShortPath(id),
-				fullPath: node.path,
-				fanIn: node.metrics.fan_in,
-				fanOut: node.metrics.fan_out,
-				depth: node.metrics.depth,
-				transitiveDeps: node.metrics.transitive_deps,
-				flags: node.flags,
-				primaryFlag,
-				nodeData: node,
-			},
-			style: {
-				background: getNodeColor(primaryFlag),
-			},
-		});
-	}
-
-	// Transform edges
-	for (const [i, edge] of data.edges.entries()) {
-		edges.push({
-			id: `edge-${i}`,
-			source: edge.from,
-			target: edge.to,
-			type: "smoothstep",
-			animated: edge.directive_type === "import",
-			style: {
-				stroke: getEdgeColor(edge.directive_type),
-				strokeWidth: 2,
-				strokeDasharray: getEdgeStyle(edge.directive_type) === "dashed" ? "5,5" : undefined,
-			},
-			markerEnd: {
-				type: "arrowclosed" as const,
-				color: getEdgeColor(edge.directive_type),
-			},
-			data: {
-				directiveType: edge.directive_type,
-				line: edge.location.line,
-				column: edge.location.column,
-				namespace: edge.namespace,
-				configured: edge.configured,
-			},
-		});
-	}
-
-	return { nodes, edges };
+/** Highlight/visibility state applied on top of the laid-out nodes. */
+export interface NodeDecoration {
+	/** Visible file IDs */
+	visibleIds: ReadonlySet<string>;
+	/** Visible group node IDs (groups with at least one visible file) */
+	visibleGroupIds: ReadonlySet<string>;
+	/** Node focused from the sidebar */
+	focusedNodeId: string | null;
+	/** First path endpoint */
+	pathSource: string | null;
+	/** Second path endpoint */
+	pathTarget: string | null;
+	/** Nodes on the found path */
+	pathNodeIds: ReadonlySet<string>;
+	/** Nodes to highlight as in a cycle, or null when cycle highlighting is off */
+	cycleNodeIds: ReadonlySet<string> | null;
+	/** Nodes to highlight as using `@import`, or null when that highlight is off */
+	importerIds: ReadonlySet<string> | null;
 }
 
-/** Apply hierarchical layout using dagre */
-export function applyDagreLayout(nodes: FileNode[], edges: DependencyEdge[]): FileNode[] {
-	const g = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
-
-	g.setGraph({
-		rankdir: "LR",
-		nodesep: 50,
-		ranksep: 150,
-		marginx: 50,
-		marginy: 50,
-	});
-
-	nodes.forEach((node) => {
-		g.setNode(node.id, { width: 180, height: 60 });
-	});
-
-	edges.forEach((edge) => {
-		g.setEdge(edge.source, edge.target);
-	});
-
-	Dagre.layout(g);
-
-	return nodes.map((node) => {
-		const position = g.node(node.id);
-		return {
-			...node,
-			position: {
-				x: position.x - 90,
-				y: position.y - 30,
-			},
-		};
-	});
+/** Highlight/visibility state applied on top of the base edges. */
+export interface EdgeDecoration {
+	/** Visible file IDs; an edge is visible only if both endpoints are */
+	visibleIds: ReadonlySet<string>;
+	/** Pair keys of edges on the found path */
+	pathEdgeKeys: ReadonlySet<string>;
+	/** Pair keys of cycle edges, or null when cycle highlighting is off */
+	cycleEdgeKeys: ReadonlySet<string> | null;
+	/** Whether `@import` edges are emphasised */
+	highlightImports: boolean;
+	/** Whether the graph is large (no animation, cheaper dash patterns) */
+	isLargeGraph: boolean;
 }
 
-/** Extract just the filename from a path */
+/** Priority order used to pick the flag that colours a node. */
+const FLAG_PRIORITY: readonly NodeFlag[] = ["entry_point", "in_cycle", "orphan", "high_fan_in", "high_fan_out", "leaf"];
+
+/**
+ * Extracts just the file name from a path.
+ * @param path - File ID or path
+ * @returns Last path segment
+ */
 function getShortPath(path: string): string {
-	const parts = path.split("/");
-	return parts.at(-1) ?? path;
+	return path.slice(path.lastIndexOf("/") + 1) || path;
 }
 
-/** Get the primary flag for coloring (by priority) */
-function getPrimaryFlag(flags: NodeFlag[]): NodeFlag | null {
-	const priority: NodeFlag[] = ["entry_point", "in_cycle", "orphan", "high_fan_in", "high_fan_out", "leaf"];
-
-	for (const flag of priority) {
-		if (flags.includes(flag)) {
-			return flag;
-		}
-	}
-
-	return null;
+/**
+ * Gets the primary flag for colouring (by priority).
+ * @param flags - Flags of the node
+ * @returns Highest-priority flag, or null when the node has none
+ */
+function getPrimaryFlag(flags: readonly NodeFlag[]): NodeFlag | null {
+	return FLAG_PRIORITY.find((flag) => flags.includes(flag)) ?? null;
 }
 
-/** Group node type */
-export type GroupNode = Node<GroupNodeData>;
-
-/** Extract folder path from a file path */
-function getFolderPath(filePath: string): string {
-	const parts = filePath.split("/");
-	parts.pop(); // Remove filename
-	return parts.join("/") || "/";
+/**
+ * Builds the group node ID for a folder.
+ * @param folderPath - Folder path
+ * @returns Group node ID
+ */
+export function getGroupId(folderPath: string): string {
+	return `group-${folderPath}`;
 }
 
-/** Transform nodes to include folder groups */
-export function transformToGroupedFlowElements(data: SassDepOutput): {
-	nodes: (FileNode | GroupNode)[];
-	edges: DependencyEdge[];
-} {
-	const { nodes: fileNodes, edges } = transformToFlowElements(data);
+/**
+ * Builds the minimal, transferable description of the graph that the layout worker needs.
+ * @param data - Normalized sass-dep output
+ * @param grouped - Whether to group files by folder
+ * @returns Layout input
+ */
+export function createLayoutInput(data: SassDepOutput, grouped: boolean): LayoutInput {
+	const ids = Object.keys(data.nodes);
+	const indexById = new Map<string, number>();
+	for (const [i, id] of ids.entries()) indexById.set(id, i);
 
-	// Group files by folder
-	const folderMap = new Map<string, FileNode[]>();
-	for (const node of fileNodes) {
-		const folder = getFolderPath(node.id);
-		if (!folderMap.has(folder)) {
-			folderMap.set(folder, []);
-		}
-		folderMap.get(folder)!.push(node);
+	const edges = new Uint32Array(data.edges.length * 2);
+	for (const [i, edge] of data.edges.entries()) {
+		edges[i * 2] = indexById.get(edge.from) ?? 0;
+		edges[i * 2 + 1] = indexById.get(edge.to) ?? 0;
 	}
 
-	// Create group nodes and assign parents
-	const groupNodes: GroupNode[] = [];
-	const nodesWithParent: FileNode[] = [];
-
-	for (const [folderPath, folderFiles] of folderMap) {
-		const groupId = `group-${folderPath}`;
-		const folderName = folderPath.split("/").pop() || folderPath || "root";
-
-		// Create group node
-		groupNodes.push({
-			id: groupId,
-			type: "group",
-			position: { x: 0, y: 0 },
-			zIndex: -1, // Below file nodes but we'll use CSS to position above edges
-			data: {
-				label: folderName,
-				folderPath,
-				fileCount: folderFiles.length,
-			},
-			style: {
-				backgroundColor: "var(--color-group-bg)",
-				borderRadius: "12px",
-				border: "2px dashed var(--color-group-border)",
-				padding: "40px 20px 20px 20px",
-			},
-		});
-
-		// Assign parent to each file node
-		for (const fileNode of folderFiles) {
-			nodesWithParent.push({
-				...fileNode,
-				parentId: groupId,
-				extent: "parent" as const,
-			});
-		}
-	}
-
-	// Combine all nodes
-	const allNodes: (FileNode | GroupNode)[] = [...groupNodes, ...nodesWithParent];
-
-	return { nodes: allNodes, edges };
+	return { grouped, ids, edges };
 }
 
-/** Apply layout for grouped nodes */
-export function applyGroupedDagreLayout(nodes: (FileNode | GroupNode)[], edges: DependencyEdge[]): (FileNode | GroupNode)[] {
-	// Separate group nodes and file nodes
-	const groupNodes = nodes.filter((n) => n.type === "group") as GroupNode[];
-	const fileNodes = nodes.filter((n) => n.type === "fileNode") as FileNode[];
+/**
+ * Creates undecorated file nodes (at the origin) for every file. Node colours come from CSS classes.
+ * @param data - Normalized sass-dep output
+ * @returns One file node per entry of `data.nodes`, in the same order as `createLayoutInput` ids
+ */
+export function buildFileNodes(data: SassDepOutput): FileFlowNode[] {
+	return Object.entries(data.nodes).map(([id, node]) => ({
+		id,
+		type: "fileNode",
+		position: { x: 0, y: 0 },
+		data: {
+			label: getShortPath(id),
+			fullPath: node.path,
+			fanIn: node.metrics.fan_in,
+			fanOut: node.metrics.fan_out,
+			depth: node.metrics.depth,
+			transitiveDeps: node.metrics.transitive_deps,
+			transitiveDependents: node.metrics.transitive_dependents,
+			flags: node.flags,
+			primaryFlag: getPrimaryFlag(node.flags),
+			isFocused: false,
+			isPathSource: false,
+			isPathTarget: false,
+			isInPath: false,
+			isInCycle: false,
+			isLegacyImport: false,
+		},
+	}));
+}
 
-	// Create a dagre graph for the groups
-	const groupGraph = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
-	groupGraph.setGraph({
-		rankdir: "LR",
-		nodesep: 100,
-		ranksep: 200,
-		marginx: 50,
-		marginy: 50,
-	});
+/**
+ * Creates undecorated edges. Colours are CSS variable references, so they follow the theme.
+ * @param data - Normalized sass-dep output
+ * @param index - Graph index (provides stable edge IDs)
+ * @param isLargeGraph - Whether to use the cheaper large-graph edge styles
+ * @returns One edge per entry of `data.edges`
+ */
+export function buildEdges(data: SassDepOutput, index: GraphIndex, isLargeGraph: boolean): DependencyEdge[] {
+	return data.edges.map((edge, i) => ({
+		id: index.edgeIds[i]!,
+		source: edge.from,
+		target: edge.to,
+		type: "smoothstep",
+		style: getEdgeStyle(edge.directive_type, "none", isLargeGraph),
+		markerEnd: getEdgeMarker(edge.directive_type, "none"),
+		data: { directiveType: edge.directive_type, pairKey: edgePairKey(edge.from, edge.to), highlight: "none" },
+	}));
+}
 
-	// Map to track which groups are connected
-	const groupEdges = new Map<string, Set<string>>();
+/**
+ * Combines file nodes with a layout result into positioned React Flow nodes (groups first, as React Flow requires).
+ * @param fileNodes - Undecorated file nodes, in layout input order
+ * @param layout - Layout result for the same ids
+ * @returns Positioned nodes
+ */
+export function applyLayout(fileNodes: readonly FileFlowNode[], layout: LayoutResult): AppNode[] {
+	const groupNodes: GroupFlowNode[] = layout.groups.map((group) => ({
+		id: getGroupId(group.folderPath),
+		type: "group",
+		position: { x: group.x, y: group.y },
+		zIndex: -1,
+		data: {
+			label: group.folderPath.split("/").pop() || group.folderPath || "root",
+			folderPath: group.folderPath,
+			fileCount: group.fileCount,
+		},
+		style: {
+			width: group.width,
+			height: group.height,
+			backgroundColor: "var(--color-group-bg)",
+			borderRadius: "12px",
+			border: "2px dashed var(--color-group-border)",
+			padding: "40px 20px 20px 20px",
+		},
+	}));
 
-	// Find connections between groups based on file edges
-	for (const edge of edges) {
-		const sourceNode = fileNodes.find((n) => n.id === edge.source);
-		const targetNode = fileNodes.find((n) => n.id === edge.target);
-		if (sourceNode?.parentId && targetNode?.parentId && sourceNode.parentId !== targetNode.parentId) {
-			const key = sourceNode.parentId;
-			if (!groupEdges.has(key)) {
-				groupEdges.set(key, new Set());
-			}
-			groupEdges.get(key)!.add(targetNode.parentId);
-		}
+	/**
+	 * Places one file node at its computed position (inside its folder group, if any).
+	 * @param node - Undecorated file node
+	 * @param i - Index of the node in the layout input
+	 * @returns Positioned file node
+	 */
+	function positionFileNode(node: FileFlowNode, i: number): FileFlowNode {
+		const position = { x: layout.positions[i * 2] ?? 0, y: layout.positions[i * 2 + 1] ?? 0 };
+		const group = layout.groups[layout.groupOf[i] ?? -1];
+		return group ? { ...node, position, parentId: getGroupId(group.folderPath), extent: "parent" } : { ...node, position };
 	}
 
-	// Estimate group sizes based on file count
-	const groupSizes = new Map<string, { width: number; height: number }>();
-	const HEADER_HEIGHT = 60; // Space between label and first row of nodes
-	const PADDING_X = 30;
-	const PADDING_BOTTOM = 30;
-	const NODE_WIDTH = 200;
-	const NODE_HEIGHT = 90;
+	const positioned = fileNodes.map(positionFileNode);
 
-	for (const group of groupNodes) {
-		const filesInGroup = fileNodes.filter((f) => f.parentId === group.id);
-		const cols = Math.ceil(Math.sqrt(filesInGroup.length));
-		const rows = Math.ceil(filesInGroup.length / cols);
-		const width = cols * NODE_WIDTH + PADDING_X * 2;
-		const height = rows * NODE_HEIGHT + HEADER_HEIGHT + PADDING_BOTTOM;
-		groupSizes.set(group.id, { width, height });
-		groupGraph.setNode(group.id, { width, height });
+	return [...groupNodes, ...positioned];
+}
+
+/**
+ * Computes which group nodes contain at least one visible file.
+ * @param visibleIds - Visible file IDs
+ * @returns Set of group node IDs
+ */
+export function getVisibleGroupIds(visibleIds: ReadonlySet<string>): Set<string> {
+	const groups = new Set<string>();
+	for (const id of visibleIds) groups.add(getGroupId(getFolderPath(id)));
+	return groups;
+}
+
+/**
+ * Applies visibility/highlight state to a node, returning the SAME object when nothing changed
+ * so memoized node components (and React Flow's internals) skip re-rendering.
+ * @param node - Current node
+ * @param decoration - Desired state
+ * @returns The node itself, or an updated copy
+ */
+export function decorateNode(node: AppNode, decoration: NodeDecoration): AppNode {
+	if (node.type === "group") {
+		const hidden = !decoration.visibleGroupIds.has(node.id);
+		return (node.hidden ?? false) === hidden ? node : { ...node, hidden };
 	}
 
-	// Add edges between groups
-	for (const [source, targets] of groupEdges) {
-		for (const target of targets) {
-			groupGraph.setEdge(source, target);
-		}
+	const { id, data } = node;
+	const hidden = !decoration.visibleIds.has(id);
+	const isFocused = id === decoration.focusedNodeId;
+	const isPathSource = id === decoration.pathSource;
+	const isPathTarget = id === decoration.pathTarget;
+	const isInPath = decoration.pathNodeIds.has(id);
+	const isInCycle = decoration.cycleNodeIds?.has(id) ?? false;
+	const isLegacyImport = decoration.importerIds?.has(id) ?? false;
+
+	if (
+		(node.hidden ?? false) === hidden &&
+		data.isFocused === isFocused &&
+		data.isPathSource === isPathSource &&
+		data.isPathTarget === isPathTarget &&
+		data.isInPath === isInPath &&
+		data.isInCycle === isInCycle &&
+		data.isLegacyImport === isLegacyImport
+	) {
+		return node;
 	}
 
-	// Layout groups
-	Dagre.layout(groupGraph);
+	return { ...node, hidden, data: { ...data, isFocused, isPathSource, isPathTarget, isInPath, isInCycle, isLegacyImport } };
+}
 
-	// Position groups (add offset to leave room for label above)
-	const LABEL_OFFSET = 32;
-	const positionedGroups: GroupNode[] = groupNodes.map((group) => {
-		const pos = groupGraph.node(group.id);
-		const size = groupSizes.get(group.id)!;
-		return {
-			...group,
-			position: {
-				x: pos.x - size.width / 2,
-				y: pos.y - size.height / 2 + LABEL_OFFSET,
-			},
-			style: {
-				...group.style,
-				width: size.width,
-				height: size.height,
-			},
-		};
-	});
+/**
+ * Applies visibility/highlight state to an edge, returning the SAME object when nothing changed.
+ * @param edge - Current edge
+ * @param decoration - Desired state
+ * @returns The edge itself, or an updated copy
+ */
+export function decorateEdge(edge: DependencyEdge, decoration: EdgeDecoration): DependencyEdge {
+	const data = edge.data;
+	if (!data) return edge;
 
-	// Position files within their groups
-	const positionedFiles: FileNode[] = [];
-	for (const group of positionedGroups) {
-		const filesInGroup = fileNodes.filter((f) => f.parentId === group.id);
-		const cols = Math.ceil(Math.sqrt(filesInGroup.length));
+	const hidden = !decoration.visibleIds.has(edge.source) || !decoration.visibleIds.has(edge.target);
+	let highlight: EdgeHighlight = "none";
+	if (decoration.pathEdgeKeys.has(data.pairKey)) {
+		highlight = "path";
+	} else if (decoration.cycleEdgeKeys?.has(data.pairKey)) {
+		highlight = "cycle";
+	} else if (decoration.highlightImports && data.directiveType === "import") {
+		highlight = "import";
+	}
+	const animated = !decoration.isLargeGraph && (highlight === "path" || highlight === "cycle");
 
-		filesInGroup.forEach((file, index) => {
-			const col = index % cols;
-			const row = Math.floor(index / cols);
-			const position: XYPosition = {
-				x: PADDING_X + col * NODE_WIDTH,
-				y: HEADER_HEIGHT + row * NODE_HEIGHT,
-			};
-			positionedFiles.push({
-				...file,
-				position,
-			});
-		});
+	if ((edge.hidden ?? false) === hidden && data.highlight === highlight && (edge.animated ?? false) === animated) {
+		return edge;
 	}
 
-	return [...positionedGroups, ...positionedFiles];
+	return {
+		...edge,
+		hidden,
+		animated,
+		zIndex: highlight === "none" ? 0 : 1,
+		style: getEdgeStyle(data.directiveType, highlight, decoration.isLargeGraph),
+		markerEnd: getEdgeMarker(data.directiveType, highlight),
+		data: { ...data, highlight },
+	};
 }

@@ -6,7 +6,8 @@
 	min-width: 140px;
 	font-family: var(--font-family-sans);
 	transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-	box-shadow: var(--shadow-md);
+	// The graph wrapper overrides these for large, zoomed-out graphs to cut paint/raster cost
+	box-shadow: var(--node-shadow, var(--shadow-md));
 	background-color: var(--color-flag-default);
 	backdrop-filter: blur(8px);
 	-webkit-backdrop-filter: blur(8px);
@@ -63,7 +64,8 @@
 		box-shadow:
 			0 0 0 3px var(--color-accent-light),
 			var(--shadow-glow);
-		animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+		// Large graphs limit the iterations: every animated frame repaints a very large scene
+		animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) var(--node-pulse-iterations, infinite);
 	}
 
 	// Path highlighting
@@ -116,12 +118,19 @@
 		box-shadow: 0 0 0 2px var(--color-accent-light);
 	}
 
+	&.legacy-import {
+		border-color: var(--color-edge-import);
+		box-shadow:
+			0 0 0 3px color-mix(in srgb, var(--color-edge-import) 25%, transparent),
+			var(--shadow-md);
+	}
+
 	&.cycle-highlight {
 		border-color: var(--color-flag-in-cycle-border);
 		box-shadow:
 			0 0 0 3px var(--color-flag-in-cycle),
 			0 0 20px var(--color-flag-in-cycle);
-		animation: cycle-pulse 1.5s ease-in-out infinite;
+		animation: cycle-pulse 1.5s ease-in-out var(--node-pulse-iterations, infinite);
 	}
 
 	// Hide React Flow handles
@@ -177,6 +186,7 @@
 }
 
 .metrics {
+	visibility: var(--node-detail-visibility, visible);
 	display: flex;
 	gap: 12px;
 	font-size: 11px;

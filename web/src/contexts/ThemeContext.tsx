@@ -2,6 +2,7 @@ import { type ReactNode, useCallback, useEffect, useState } from "react";
 
 import { ThemeContext } from "./themeContext";
 
+/** Available theme modes. */
 type Theme = "light" | "dark";
 
 /** localStorage key for persisting theme preference. */
@@ -26,7 +27,9 @@ function getInitialTheme(): Theme {
 	return "light";
 }
 
+/** Props for the ThemeProvider component. */
 interface ThemeProviderProps {
+	/** Content rendered inside the provider */
 	children: ReactNode;
 }
 

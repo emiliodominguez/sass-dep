@@ -1,11 +1,25 @@
-import type { NodeFlag } from "../../types/sass-dep";
+import type { AdvancedFilters, FilterFlag } from "../../types/filters";
 
+export type { AdvancedFilters, FilterFlag };
+
+/** Imperative handle exposed by the Toolbar component. */
 export interface ToolbarHandle {
+	/** Focuses and selects the search input. */
 	focusSearch: () => void;
 }
 
+/** A selectable entry in the flag filter dropdown. */
+export interface FilterOption {
+	/** The flag this option toggles */
+	flag: FilterFlag;
+	/** Human-readable label */
+	label: string;
+	/** CSS module class name used for the colour swatch */
+	className: string;
+}
+
 /** Filter options with flag mappings */
-export const FILTER_OPTIONS: { flag: NodeFlag | "no_flags"; label: string; className: string }[] = [
+export const FILTER_OPTIONS: readonly FilterOption[] = [
 	{ flag: "entry_point", label: "Entry Points", className: "entry-point" },
 	{ flag: "in_cycle", label: "In Cycle", className: "in-cycle" },
 	{ flag: "orphan", label: "Orphans", className: "orphan" },
@@ -15,17 +29,10 @@ export const FILTER_OPTIONS: { flag: NodeFlag | "no_flags"; label: string; class
 	{ flag: "no_flags", label: "No Flags", className: "no-flags" },
 ];
 
-export const ALL_FILTER_FLAGS = FILTER_OPTIONS.map((option) => option.flag);
+/** Every filter flag; the default selection (shows all nodes). */
+export const ALL_FILTER_FLAGS: FilterFlag[] = FILTER_OPTIONS.map((option) => option.flag);
 
-export interface AdvancedFilters {
-	minDepth: number | null;
-	maxDepth: number | null;
-	minFanIn: number | null;
-	maxFanIn: number | null;
-	minFanOut: number | null;
-	maxFanOut: number | null;
-}
-
+/** Advanced filters with no bounds set. */
 export const DEFAULT_ADVANCED_FILTERS: AdvancedFilters = {
 	minDepth: null,
 	maxDepth: null,
