@@ -46,7 +46,7 @@ function Workspace({ data }: WorkspaceProps) {
 	// Single source of truth for visibility (toolbar count + graph).
 	const visibleIds = useVisibleNodeIds(data, searchQuery, activeFilters, advancedFilters);
 	const pathHighlight = usePathHighlight(pathSource, pathTarget, index);
-	const nodeCount = data.analysis.statistics.total_files || Object.keys(data.nodes).length;
+	const nodeCount = data.analysis.statistics.total_files;
 
 	/**
 	 * Handles node selection, supporting shift-click for path highlighting.

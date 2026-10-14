@@ -189,30 +189,6 @@ function normalizeCycles(raw: unknown): string[][] {
 }
 
 /**
- * Normalizes summary statistics. Fields introduced in v1.1.0 are derived from the
- * rest of the document when absent, so older files still show meaningful numbers.
- * @param raw - Raw `analysis.statistics` value
- * @param derived - Values derived from the document used as fallbacks for missing fields
- * @returns Complete statistics object
- */
-function normalizeStatistics(raw: unknown, derived: Statistics): Statistics {
-	const stats = isObject(raw) ? raw : {};
-	return {
-		total_files: toCount(stats["total_files"], derived.total_files),
-		total_dependencies: toCount(stats["total_dependencies"], derived.total_dependencies),
-		entry_points: toCount(stats["entry_points"], derived.entry_points),
-		orphan_files: toCount(stats["orphan_files"], derived.orphan_files),
-		leaf_files: toCount(stats["leaf_files"], derived.leaf_files),
-		max_depth: toCount(stats["max_depth"], derived.max_depth),
-		max_fan_in: toCount(stats["max_fan_in"], derived.max_fan_in),
-		max_fan_out: toCount(stats["max_fan_out"], derived.max_fan_out),
-		cycle_count: toCount(stats["cycle_count"], derived.cycle_count),
-		unresolved_imports: toCount(stats["unresolved_imports"], derived.unresolved_imports),
-		import_directives: toCount(stats["import_directives"], derived.import_directives),
-	};
-}
-
-/**
  * Computes statistics from the normalized nodes and edges; used as fallbacks for missing fields.
  * @param nodes - Normalized node map
  * @param edges - Normalized edges
@@ -305,16 +281,27 @@ export function normalizeOutput(raw: unknown): SassDepOutput {
 		console.warn(`sass-dep schema version "${version}" may not be fully compatible with this visualizer (expects ${SUPPORTED_SCHEMA_VERSION}).`);
 	}
 
-	const nodes: Record<string, OutputNode> = {};
+	// Null-prototype object: keys such as "__proto__", "constructor" or "toString" are ordinary
+	// own properties instead of prototype setters/inherited members.
+	const nodes: Record<string, OutputNode> = Object.create(null) as Record<string, OutputNode>;
+	let droppedNodes = 0;
 	for (const [id, node] of Object.entries(raw["nodes"])) {
+		// NUL never occurs in real paths and is reserved for internal (group) node IDs.
+		if (id.length === 0 || id.includes("\u0000")) {
+			droppedNodes++;
+			continue;
+		}
 		nodes[id] = normalizeNode(id, node);
+	}
+	if (droppedNodes > 0) {
+		console.warn(`Ignored ${droppedNodes} file(s) with an empty ID or an ID containing NUL.`);
 	}
 
 	const edges: OutputEdge[] = [];
 	let droppedEdges = 0;
 	for (const [index, rawEdge] of raw["edges"].entries()) {
 		const edge = normalizeEdge(rawEdge, index);
-		if (edge.from in nodes && edge.to in nodes) {
+		if (Object.hasOwn(nodes, edge.from) && Object.hasOwn(nodes, edge.to)) {
 			edges.push(edge);
 		} else {
 			droppedEdges++;
@@ -325,9 +312,11 @@ export function normalizeOutput(raw: unknown): SassDepOutput {
 	}
 
 	const rawAnalysis = raw["analysis"];
-	const cycles = normalizeCycles(rawAnalysis["cycles"]);
+	const cycles = normalizeCycles(rawAnalysis["cycles"]).filter((cycle) => cycle.every((id) => Object.hasOwn(nodes, id)));
 	const unresolved = Array.isArray(rawAnalysis["unresolved"]) ? rawAnalysis["unresolved"].map(normalizeUnresolved) : [];
-	const statistics = normalizeStatistics(rawAnalysis["statistics"], deriveStatistics(nodes, edges, cycles, unresolved));
+	// Statistics are always recomputed from the validated data: the numbers a file claims about
+	// itself may be stale, hand-edited or hostile, and every one of them is derivable.
+	const statistics = deriveStatistics(nodes, edges, cycles, unresolved);
 	const analysis: Analysis = { cycles, unresolved, statistics };
 
 	return {

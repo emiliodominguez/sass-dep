@@ -7,8 +7,9 @@ export interface GraphIndex {
 	/** Edges entering each file (its dependents), keyed by file ID */
 	incoming: Map<string, OutputEdge[]>;
 	/**
-	 * Edges keyed by their stable edge ID (see {@link getEdgeIds}). The first edge between two files
-	 * uses the plain pair key `from->to`, so `edgeByKey.get(edgePairKey(a, b))` also works.
+	 * Edges keyed by their stable edge ID. The first edge between two files uses the plain pair key
+	 * (see {@link edgePairKey}), so `edgeByKey.get(edgePairKey(a, b))` also works; later edges between
+	 * the same pair get a `#n` suffix.
 	 */
 	edgeByKey: Map<string, OutputEdge>;
 	/** Edge ID for each entry of `data.edges`, by array index */
@@ -17,18 +18,22 @@ export interface GraphIndex {
 	importerIds: Set<string>;
 	/** Files that appear in any cycle */
 	cycleNodeIds: Set<string>;
-	/** Pair keys (`from->to`) of edges that close or belong to a cycle */
+	/** Pair keys (see {@link edgePairKey}) of edges that close or belong to a cycle */
 	cycleEdgeKeys: Set<string>;
 }
 
 /**
  * Builds the key used to identify the (directed) connection between two files.
+ *
+ * The key is the JSON encoding of `[from, to]`, which is injective: unlike a plain `from->to`
+ * concatenation, files named e.g. `a->b` and `c` can never produce the same key as `a` and `b->c`.
+ * Keys always end with `"]`, so `#n` suffixes cannot collide with another pair key either.
  * @param from - Source file ID
  * @param to - Target file ID
- * @returns Pair key in the form `from->to`
+ * @returns Unambiguous pair key
  */
 export function edgePairKey(from: string, to: string): string {
-	return `${from}->${to}`;
+	return JSON.stringify([from, to]);
 }
 
 /**
@@ -56,6 +61,7 @@ export function buildGraphIndex(data: SassDepOutput): GraphIndex {
 	const incoming = new Map<string, OutputEdge[]>();
 	const edgeByKey = new Map<string, OutputEdge>();
 	const edgeIds: string[] = [];
+	const pairCounts = new Map<string, number>();
 	const importerIds = new Set<string>();
 
 	for (const edge of data.edges) {
@@ -65,10 +71,9 @@ export function buildGraphIndex(data: SassDepOutput): GraphIndex {
 		// Multiple directives between the same pair of files are possible (e.g. @use + @forward),
 		// so subsequent ones get a numeric suffix to keep IDs unique.
 		const pairKey = edgePairKey(edge.from, edge.to);
-		let id = pairKey;
-		for (let n = 2; edgeByKey.has(id); n++) {
-			id = `${pairKey}#${n}`;
-		}
+		const count = (pairCounts.get(pairKey) ?? 0) + 1;
+		pairCounts.set(pairKey, count);
+		const id = count === 1 ? pairKey : `${pairKey}#${count}`;
 		edgeByKey.set(id, edge);
 		edgeIds.push(id);
 

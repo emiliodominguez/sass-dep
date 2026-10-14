@@ -343,7 +343,8 @@ function GraphInner({
 
 	/** Exports the visible subgraph as a sass-dep JSON document. */
 	function exportJson(): void {
-		const visibleNodes: Record<string, OutputNode> = {};
+		// Null prototype so a file named "__proto__" is exported as a normal key.
+		const visibleNodes: Record<string, OutputNode> = Object.create(null) as Record<string, OutputNode>;
 		for (const [id, node] of Object.entries(data.nodes)) {
 			if (visibleIds.has(id)) visibleNodes[id] = node;
 		}
@@ -416,6 +417,7 @@ function GraphInner({
 	 * @param node - Clicked node
 	 */
 	function handleNodeClick(event: React.MouseEvent, node: AppNode): void {
+		if (node.type === "group" || !Object.hasOwn(data.nodes, node.id)) return;
 		const nodeData = data.nodes[node.id];
 		if (nodeData && onNodeSelect) {
 			onNodeSelect(node.id, nodeData, event.shiftKey);

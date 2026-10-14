@@ -128,11 +128,14 @@ function getPrimaryFlag(flags: readonly NodeFlag[]): NodeFlag | null {
 
 /**
  * Builds the group node ID for a folder.
+ *
+ * Group IDs start with a NUL character, which `normalizeOutput` rejects in file IDs (no file
+ * system allows it in a path), so a group can never collide with a file node.
  * @param folderPath - Folder path
  * @returns Group node ID
  */
 export function getGroupId(folderPath: string): string {
-	return `group-${folderPath}`;
+	return `\u0000group:${folderPath}`;
 }
 
 /**
@@ -146,13 +149,17 @@ export function createLayoutInput(data: SassDepOutput, grouped: boolean): Layout
 	const indexById = new Map<string, number>();
 	for (const [i, id] of ids.entries()) indexById.set(id, i);
 
-	const edges = new Uint32Array(data.edges.length * 2);
-	for (const [i, edge] of data.edges.entries()) {
-		edges[i * 2] = indexById.get(edge.from) ?? 0;
-		edges[i * 2 + 1] = indexById.get(edge.to) ?? 0;
+	const pairs: number[] = [];
+	for (const edge of data.edges) {
+		const from = indexById.get(edge.from);
+		const to = indexById.get(edge.to);
+		// Edges to unknown files are dropped by normalizeOutput; never map them onto node 0.
+		if (from !== undefined && to !== undefined) {
+			pairs.push(from, to);
+		}
 	}
 
-	return { grouped, ids, edges };
+	return { grouped, ids, edges: Uint32Array.from(pairs) };
 }
 
 /**

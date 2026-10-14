@@ -24,6 +24,13 @@ const GROUP_LABEL_OFFSET = 32;
 const NETWORK_SIMPLEX_MAX_NODES = 200;
 
 /**
+ * Dagre ranks and orders nodes with recursive depth-first searches and overflows the stack on
+ * import chains roughly 2000 files deep. Graphs whose BFS depth exceeds this use the iterative
+ * layered fallback directly (dagre failures fall back to it as well).
+ */
+const MAX_DAGRE_DEPTH = 1000;
+
+/**
  * Picks the dagre ranking algorithm for a graph of the given size.
  * @param nodeCount - Number of nodes in the dagre graph
  * @returns Dagre ranker name
@@ -81,32 +88,191 @@ export function getFolderPath(filePath: string): string {
 	return slash > 0 ? filePath.slice(0, slash) : "/";
 }
 
-/**
- * Lays out files hierarchically (left to right) with dagre.
- * @param input - Graph to lay out
- * @returns Positions for every file
- */
-function layoutFlat(input: LayoutInput): LayoutResult {
-	const graph = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
-	graph.setGraph({ rankdir: "LR", nodesep: 50, ranksep: 150, marginx: 50, marginy: 50, ranker: chooseRanker(input.ids.length) });
+/** Spacing options for the layered layout. */
+interface LayeredSpacing {
+	/** Gap between nodes in the same rank */
+	nodesep: number;
+	/** Gap between ranks */
+	ranksep: number;
+	/** Outer margin */
+	margin: number;
+}
 
-	for (const id of input.ids) {
-		graph.setNode(id, { width: NODE_WIDTH, height: NODE_HEIGHT });
+/**
+ * Assigns every node a rank equal to its BFS distance from the nearest source (in-degree 0).
+ * Nodes only reachable through cycles are seeded in index order. Iterative, O(N + E).
+ * @param count - Number of nodes
+ * @param edges - Flattened `[from, to, ...]` index pairs
+ * @returns Rank per node and the largest rank
+ */
+function computeRanks(count: number, edges: Uint32Array): { ranks: Int32Array; maxRank: number } {
+	const offsets = new Uint32Array(count + 1);
+	const inDegree = new Uint32Array(count);
+	for (let i = 0; i < edges.length; i += 2) {
+		offsets[edges[i]! + 1]!++;
+		inDegree[edges[i + 1]!]!++;
 	}
-	for (let i = 0; i < input.edges.length; i += 2) {
-		graph.setEdge(input.ids[input.edges[i]!]!, input.ids[input.edges[i + 1]!]!);
+	for (let i = 0; i < count; i++) offsets[i + 1]! += offsets[i]!;
+	const targets = new Uint32Array(edges.length / 2);
+	const cursor = offsets.slice(0, count);
+	for (let i = 0; i < edges.length; i += 2) targets[cursor[edges[i]!]!++] = edges[i + 1]!;
+
+	const ranks = new Int32Array(count).fill(-1);
+	const queue = new Uint32Array(count);
+	let head = 0;
+	let tail = 0;
+	let maxRank = 0;
+
+	/**
+	 * Runs BFS from the queued nodes until the queue is drained.
+	 */
+	function drain(): void {
+		while (head < tail) {
+			const node = queue[head++]!;
+			const next = ranks[node]! + 1;
+			for (let e = offsets[node]!; e < offsets[node + 1]!; e++) {
+				const target = targets[e]!;
+				if (ranks[target] === -1) {
+					ranks[target] = next;
+					maxRank = Math.max(maxRank, next);
+					queue[tail++] = target;
+				}
+			}
+		}
+	}
+
+	for (let i = 0; i < count; i++) {
+		if (inDegree[i] === 0) {
+			ranks[i] = 0;
+			queue[tail++] = i;
+		}
+	}
+	drain();
+	for (let i = 0; i < count; i++) {
+		if (ranks[i] === -1) {
+			ranks[i] = 0;
+			queue[tail++] = i;
+			drain();
+		}
+	}
+
+	return { ranks, maxRank };
+}
+
+/**
+ * Places nodes in left-to-right columns by rank, stacking each column vertically.
+ * Iterative and O(N + E), so it works for graphs of any depth.
+ * @param ranks - Rank per node
+ * @param maxRank - Largest rank
+ * @param widths - Width per node
+ * @param heights - Height per node
+ * @param spacing - Gaps and margin
+ * @returns Center position per node as `[x0, y0, x1, y1, ...]`
+ */
+function placeLayered(ranks: Int32Array, maxRank: number, widths: Float64Array, heights: Float64Array, spacing: LayeredSpacing): Float64Array {
+	const count = ranks.length;
+	const columnWidth = new Float64Array(maxRank + 1);
+	for (let i = 0; i < count; i++) columnWidth[ranks[i]!] = Math.max(columnWidth[ranks[i]!]!, widths[i]!);
+
+	const columnX = new Float64Array(maxRank + 1);
+	let x = spacing.margin;
+	for (let r = 0; r <= maxRank; r++) {
+		columnX[r] = x + columnWidth[r]! / 2;
+		x += columnWidth[r]! + spacing.ranksep;
+	}
+
+	const nextY = new Float64Array(maxRank + 1).fill(spacing.margin);
+	const centers = new Float64Array(count * 2);
+	for (let i = 0; i < count; i++) {
+		const rank = ranks[i]!;
+		centers[i * 2] = columnX[rank]!;
+		centers[i * 2 + 1] = nextY[rank]! + heights[i]! / 2;
+		nextY[rank]! += heights[i]! + spacing.nodesep;
+	}
+
+	return centers;
+}
+
+/**
+ * Computes node centers with dagre, or with the iterative layered layout for very deep graphs
+ * and whenever dagre fails (e.g. stack overflow).
+ * @param count - Number of nodes
+ * @param edges - Flattened `[from, to, ...]` index pairs (no self-loops required)
+ * @param widths - Width per node
+ * @param heights - Height per node
+ * @param spacing - Gaps and margin
+ * @returns Center position per node as `[x0, y0, x1, y1, ...]`
+ */
+function computeCenters(count: number, edges: Uint32Array, widths: Float64Array, heights: Float64Array, spacing: LayeredSpacing): Float64Array {
+	const { ranks, maxRank } = computeRanks(count, edges);
+	if (maxRank <= MAX_DAGRE_DEPTH) {
+		try {
+			return layoutWithDagre(count, edges, widths, heights, spacing);
+		} catch (error) {
+			console.warn("dagre layout failed; using the layered fallback layout.", error);
+		}
+	}
+	return placeLayered(ranks, maxRank, widths, heights, spacing);
+}
+
+/**
+ * Computes node centers with dagre.
+ * @param count - Number of nodes
+ * @param edges - Flattened `[from, to, ...]` index pairs
+ * @param widths - Width per node
+ * @param heights - Height per node
+ * @param spacing - Gaps and margin
+ * @returns Center position per node as `[x0, y0, x1, y1, ...]`
+ */
+function layoutWithDagre(count: number, edges: Uint32Array, widths: Float64Array, heights: Float64Array, spacing: LayeredSpacing): Float64Array {
+	const graph = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
+	graph.setGraph({
+		rankdir: "LR",
+		nodesep: spacing.nodesep,
+		ranksep: spacing.ranksep,
+		marginx: spacing.margin,
+		marginy: spacing.margin,
+		ranker: chooseRanker(count),
+	});
+
+	for (let i = 0; i < count; i++) {
+		graph.setNode(String(i), { width: widths[i]!, height: heights[i]! });
+	}
+	for (let i = 0; i < edges.length; i += 2) {
+		graph.setEdge(String(edges[i]!), String(edges[i + 1]!));
 	}
 
 	Dagre.layout(graph);
 
-	const positions = new Float64Array(input.ids.length * 2);
-	for (const [i, id] of input.ids.entries()) {
-		const node = graph.node(id);
-		positions[i * 2] = node.x - NODE_WIDTH / 2;
-		positions[i * 2 + 1] = node.y - NODE_HEIGHT / 2;
+	const centers = new Float64Array(count * 2);
+	for (let i = 0; i < count; i++) {
+		const node = graph.node(String(i));
+		centers[i * 2] = node.x;
+		centers[i * 2 + 1] = node.y;
+	}
+	return centers;
+}
+
+/**
+ * Lays out files hierarchically (left to right) with dagre, or the layered fallback for very deep graphs.
+ * @param input - Graph to lay out
+ * @returns Positions for every file
+ */
+function layoutFlat(input: LayoutInput): LayoutResult {
+	const count = input.ids.length;
+	const centers = computeCenters(count, input.edges, new Float64Array(count).fill(NODE_WIDTH), new Float64Array(count).fill(NODE_HEIGHT), {
+		nodesep: 50,
+		ranksep: 150,
+		margin: 50,
+	});
+
+	const positions = new Float64Array(count * 2);
+	for (let i = 0; i < count; i++) {
+		positions[i * 2] = centers[i * 2]! - NODE_WIDTH / 2;
+		positions[i * 2 + 1] = centers[i * 2 + 1]! - NODE_HEIGHT / 2;
 	}
 
-	return { positions, groups: [], groupOf: new Int32Array(input.ids.length).fill(-1) };
+	return { positions, groups: [], groupOf: new Int32Array(count).fill(-1) };
 }
 
 /**
@@ -134,9 +300,8 @@ function layoutGrouped(input: LayoutInput): LayoutResult {
 		members[groupIndex]!.push(i);
 	}
 
-	const graph = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
-	graph.setGraph({ rankdir: "LR", nodesep: 100, ranksep: 200, marginx: 50, marginy: 50, ranker: chooseRanker(groups.length) });
-
+	const widths = new Float64Array(groups.length);
+	const heights = new Float64Array(groups.length);
 	const columns: number[] = [];
 	for (const [g, group] of groups.entries()) {
 		const count = members[g]!.length;
@@ -146,27 +311,27 @@ function layoutGrouped(input: LayoutInput): LayoutResult {
 		group.fileCount = count;
 		group.width = cols * GROUP_CELL_WIDTH + GROUP_PADDING_X * 2;
 		group.height = rows * GROUP_CELL_HEIGHT + GROUP_HEADER_HEIGHT + GROUP_PADDING_BOTTOM;
-		graph.setNode(String(g), { width: group.width, height: group.height });
+		widths[g] = group.width;
+		heights[g] = group.height;
 	}
 
 	// Connect groups that have at least one file-level edge between them (deduplicated).
 	const seenGroupEdges = new Set<number>();
+	const groupEdges: number[] = [];
 	for (let i = 0; i < input.edges.length; i += 2) {
 		const from = groupOf[input.edges[i]!]!;
 		const to = groupOf[input.edges[i + 1]!]!;
 		const key = from * groups.length + to;
 		if (from !== to && !seenGroupEdges.has(key)) {
 			seenGroupEdges.add(key);
-			graph.setEdge(String(from), String(to));
+			groupEdges.push(from, to);
 		}
 	}
 
-	Dagre.layout(graph);
-
+	const centers = computeCenters(groups.length, Uint32Array.from(groupEdges), widths, heights, { nodesep: 100, ranksep: 200, margin: 50 });
 	for (const [g, group] of groups.entries()) {
-		const node = graph.node(String(g));
-		group.x = node.x - group.width / 2;
-		group.y = node.y - group.height / 2 + GROUP_LABEL_OFFSET;
+		group.x = centers[g * 2]! - group.width / 2;
+		group.y = centers[g * 2 + 1]! - group.height / 2 + GROUP_LABEL_OFFSET;
 	}
 
 	const positions = new Float64Array(input.ids.length * 2);
