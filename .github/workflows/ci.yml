@@ -58,3 +58,21 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
+
+  parity:
+    name: Dart Sass resolution parity
+    needs: web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release
+      - run: scripts/sass-parity.sh target/release/sass-dep

@@ -413,7 +413,7 @@ Contributions are welcome! Please:
 1. Fork the repository
 2. Run `./setup.sh` to configure git hooks and build the web visualizer
 3. Create a feature branch
-4. Make sure `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` and the web checks (`npm run typecheck && npm run lint && npm run build` in `web/`) pass
+4. Make sure `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` and the web checks (`npm run typecheck && npm run lint && npm run build` in `web/`) pass. `scripts/sass-parity.sh target/release/sass-dep` compares resolution against Dart Sass on Bootstrap, Bulma, Foundation and Angular Material
 5. Submit a pull request
 
 ## License
