@@ -3,7 +3,7 @@ name = "sass-dep"
 version = "0.1.0"
 edition = "2021"
 authors = ["Emilio Dominguez"]
-description = "SCSS dependency graph analyzer"
+description = "Rust CLI for mapping Sass and SCSS dependencies, finding circular imports and enforcing architecture rules, with graph exports and an interactive visualizer."
 license = "MIT"
 repository = "https://github.com/emiliodominguez/sass-dep"
 

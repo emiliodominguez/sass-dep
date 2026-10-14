@@ -1,8 +1,12 @@
-# sass-dep
+![sass-dep: See how your styles connect. A graphite and copper dependency tree.](https://raw.githubusercontent.com/emiliodominguez/sass-dep/main/docs/assets/sass-dep-banner.jpg)
 
-A Rust CLI tool for analyzing SCSS codebases and building file-level dependency graphs.
+[![Rust: 2021 edition](https://img.shields.io/badge/Rust-2021-ce794a?style=for-the-badge&labelColor=161b22&logo=rust&logoColor=white)](./Cargo.toml)
+[![SCSS: dependencies](https://img.shields.io/badge/SCSS-dependencies-cc6699?style=for-the-badge&labelColor=161b22&logo=sass&logoColor=white)](#overview)
+[![License: MIT](https://img.shields.io/badge/license-MIT-3da639?style=for-the-badge&labelColor=161b22&logo=opensourceinitiative&logoColor=white)](./LICENSE)
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+**Understand how your SCSS files connect.**
+
+Map dependencies, find circular imports and check architecture rules with a Rust CLI and an interactive graph visualizer.
 
 ## Overview
 
