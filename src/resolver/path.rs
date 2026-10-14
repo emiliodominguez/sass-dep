@@ -268,7 +268,11 @@ impl Resolver {
     fn try_resolve_in_dir(&self, dir: &Path, target: &str, kind: ResolveKind) -> Option<PathBuf> {
         // Sass URLs always use `/`; push segments one by one so this also
         // works under Windows verbatim (`\\?\`) prefixes.
-        let mut joined = dir.to_path_buf();
+        let mut joined = if target.starts_with('/') {
+            Path::new("/").to_path_buf()
+        } else {
+            dir.to_path_buf()
+        };
         joined.extend(target.split('/').filter(|segment| !segment.is_empty()));
         let joined = normalize_lexically(&joined);
         let search_dir = joined.parent()?;
@@ -687,6 +691,21 @@ mod tests {
             .unwrap();
 
         assert!(resolved.ends_with("shared/_real.scss"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_absolute_target() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("_abs.scss"), "").unwrap();
+        let target = temp.path().join("abs").to_string_lossy().into_owned();
+
+        let resolver = Resolver::default();
+        let resolved = resolver
+            .resolve_from_dir(Path::new("/nonexistent"), &target, ResolveKind::Module)
+            .unwrap();
+
+        assert!(resolved.ends_with("_abs.scss"));
     }
 
     #[test]

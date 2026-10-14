@@ -103,6 +103,10 @@ struct Cursor<'a> {
     pos: usize,
     line: usize,
     line_start: usize,
+    /// Byte offset up to which `col_chars` has been counted on the current line.
+    col_pos: usize,
+    /// Characters between `line_start` and `col_pos`.
+    col_chars: usize,
 }
 
 impl<'a> Cursor<'a> {
@@ -113,6 +117,8 @@ impl<'a> Cursor<'a> {
             pos: 0,
             line: 1,
             line_start: 0,
+            col_pos: 0,
+            col_chars: 0,
         }
     }
 
@@ -141,13 +147,20 @@ impl<'a> Cursor<'a> {
     }
 
     /// Returns the 1-indexed location of the cursor (column counted in characters).
-    fn location(&self) -> Location {
-        let column = self.src[self.line_start..self.pos]
+    ///
+    /// Columns are counted incrementally from the previous call on the same
+    /// line, so minified single-line files stay linear.
+    fn location(&mut self) -> Location {
+        if self.col_pos < self.line_start || self.col_pos > self.pos {
+            self.col_pos = self.line_start;
+            self.col_chars = 0;
+        }
+        self.col_chars += self.src[self.col_pos..self.pos]
             .iter()
             .filter(|&&b| (b & 0xC0) != 0x80)
-            .count()
-            + 1;
-        Location::new(self.line, column)
+            .count();
+        self.col_pos = self.pos;
+        Location::new(self.line, self.col_chars + 1)
     }
 
     /// Skips the body of a string whose opening `quote` was already consumed.
@@ -846,6 +859,80 @@ mod tests {
         let directives = Parser::parse(input).unwrap();
         assert_eq!(directives.len(), 1);
         assert_eq!(directives[0].location().line, 3);
+    }
+
+    #[test]
+    fn parse_columns_on_one_long_line() {
+        let input = "@use \"a\"; .é{} @use \"b\"; @import \"c\";";
+        let directives = Parser::parse(input).unwrap();
+        let columns: Vec<usize> = directives.iter().map(|d| d.location().column).collect();
+        assert_eq!(columns, vec![1, 16, 26]);
+        assert!(directives.iter().all(|d| d.location().line == 1));
+    }
+
+    /// Deterministic fuzzing over the syntax-significant alphabet: the scanner
+    /// must never panic, and every location must point inside the input.
+    #[test]
+    fn fuzz_scanner_never_panics() {
+        const PIECES: &[&[u8]] = &[
+            b"@",
+            b"@use",
+            b"@forward",
+            b"@import",
+            b" ",
+            b"\n",
+            b"\"",
+            b"'",
+            b"\\",
+            b"/",
+            b"*",
+            b"(",
+            b")",
+            b";",
+            b",",
+            b"as",
+            b"with",
+            b"show",
+            b"hide",
+            b"url(",
+            b"$x",
+            b"-*",
+            b"a",
+            b"\xC3\xA9",
+            b"\xFF",
+            b"{",
+            b"}",
+            b".css",
+            b"//",
+            b"/*",
+            b"*/",
+        ];
+
+        let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+
+        for _ in 0..20_000 {
+            let len = (next() % 40) as usize;
+            let mut input = Vec::new();
+            for _ in 0..len {
+                input.extend_from_slice(PIECES[(next() % PIECES.len() as u64) as usize]);
+            }
+
+            let lines = input.iter().filter(|&&b| b == b'\n').count() + 1;
+            for directive in Parser::parse_bytes(&input) {
+                let location = directive.location();
+                assert!(location.line >= 1 && location.line <= lines, "{input:?}");
+                assert!(
+                    location.column >= 1 && location.column <= input.len().max(1),
+                    "{input:?}"
+                );
+            }
+        }
     }
 
     #[test]
