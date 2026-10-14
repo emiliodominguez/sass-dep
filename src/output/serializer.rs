@@ -124,8 +124,11 @@ impl Serializer {
             let _ = writeln!(out, "  n{i}[\"{}\"]", mermaid_escape(id));
         }
 
+        // linkStyle indices count emitted links only, so edges referencing
+        // unknown nodes (possible in hand-edited input) must not advance it.
         let mut cycle_links = Vec::new();
-        for (link, edge) in schema.edges.iter().enumerate() {
+        let mut link = 0usize;
+        for edge in &schema.edges {
             let (Some(from), Some(to)) = (ids.get(edge.from.as_str()), ids.get(edge.to.as_str()))
             else {
                 continue;
@@ -139,6 +142,7 @@ impl Serializer {
             if cycle_edges.contains(&(edge.from.as_str(), edge.to.as_str())) {
                 cycle_links.push(link.to_string());
             }
+            link += 1;
         }
 
         out.push('\n');
@@ -167,23 +171,33 @@ impl Serializer {
     }
 
     /// Renders the graph as a D2 diagram.
+    ///
+    /// Shapes use synthetic keys (`n0`, `n1`, ...) with the file ID as label:
+    /// D2 keys are case-insensitive, so `_A.scss` and `_a.scss` would
+    /// otherwise collapse into one shape.
     pub fn to_d2(schema: &OutputSchema) -> String {
+        let ids: HashMap<&str, usize> = schema
+            .nodes
+            .keys()
+            .enumerate()
+            .map(|(i, id)| (id.as_str(), i))
+            .collect();
         let cycle_edges = cycle_edges(schema);
         let mut out = String::with_capacity(64 * (schema.nodes.len() + schema.edges.len()) + 64);
 
         out.push_str("direction: right\n\n");
 
-        for (id, node) in &schema.nodes {
-            let key = d2_escape(id);
+        for (i, (id, node)) in schema.nodes.iter().enumerate() {
+            let label = d2_escape(id);
             match primary_style(&node.flags) {
                 Some((_, _, fill, stroke)) => {
                     let _ = writeln!(
                         out,
-                        "\"{key}\": {{\n  style.fill: \"{fill}\"\n  style.stroke: \"{stroke}\"\n}}"
+                        "n{i}: \"{label}\" {{\n  style.fill: \"{fill}\"\n  style.stroke: \"{stroke}\"\n}}"
                     );
                 }
                 None => {
-                    let _ = writeln!(out, "\"{key}\"");
+                    let _ = writeln!(out, "n{i}: \"{label}\"");
                 }
             }
         }
@@ -193,12 +207,11 @@ impl Serializer {
         }
 
         for edge in &schema.edges {
-            let _ = write!(
-                out,
-                "\"{}\" -> \"{}\"",
-                d2_escape(&edge.from),
-                d2_escape(&edge.to)
-            );
+            let (Some(from), Some(to)) = (ids.get(edge.from.as_str()), ids.get(edge.to.as_str()))
+            else {
+                continue;
+            };
+            let _ = write!(out, "n{from} -> n{to}");
             let dash = match edge.directive_type {
                 DirectiveType::Use => None,
                 DirectiveType::Forward => Some(5),
@@ -249,13 +262,41 @@ fn dot_escape(value: &str) -> String {
 }
 
 /// Escapes a string for use inside a quoted Mermaid label.
+///
+/// Mermaid renders labels as HTML and decodes `#name;` / `#123;` entities,
+/// so `#`, quotes, angle brackets, ampersands and control characters are
+/// all written as numeric entities.
 fn mermaid_escape(value: &str) -> String {
-    value.replace('"', "#quot;")
+    let mut out = String::with_capacity(value.len());
+    for c in value.chars() {
+        match c {
+            '#' | '"' | '<' | '>' | '&' => {
+                let _ = write!(out, "#{};", c as u32);
+            }
+            c if c.is_control() => {
+                let _ = write!(out, "#{};", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    out
 }
 
-/// Escapes a string for use inside a double-quoted D2 key.
+/// Escapes a string for use inside a double-quoted D2 label.
 fn d2_escape(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
+    let mut out = String::with_capacity(value.len());
+    for c in value.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c.is_control() => out.push('\u{FFFD}'),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -265,7 +306,9 @@ mod tests {
     #[test]
     fn escapes_quotes() {
         assert_eq!(dot_escape(r#"a"b\c"#), r#"a\"b\\c"#);
-        assert_eq!(mermaid_escape(r#"a"b"#), "a#quot;b");
+        assert_eq!(mermaid_escape(r#"a"b"#), "a#34;b");
+        assert_eq!(mermaid_escape("<b>#lt;&\n"), "#60;b#62;#35;lt;#38;#10;");
+        assert_eq!(d2_escape("a\"b\\c\nd"), "a\\\"b\\\\c\\nd");
     }
 
     #[test]
